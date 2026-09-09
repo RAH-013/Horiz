@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Horiz</string>
+    <string name="widget_description">Muestra el horario de clases de hoy.</string>
 </resources>

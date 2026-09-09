@@ -1,6 +1,7 @@
 package com.horiz.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -28,7 +29,9 @@ fun AppNavigation(
     appTheme: AppTheme,
     baseColor: BaseColor,
     onThemeChanged: (AppTheme) -> Unit,
-    onBaseColorChanged: (BaseColor) -> Unit
+    onBaseColorChanged: (BaseColor) -> Unit,
+    startDestinationOverride: String? = null,
+    onDestinationConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -41,6 +44,22 @@ fun AppNavigation(
 
     val refreshFlag =
         backStackEntry?.destination?.route != Routes.Scanner.route
+
+    LaunchedEffect(startDestinationOverride) {
+        startDestinationOverride?.let { targetRoute ->
+            val routeToNavigate = when (targetRoute) {
+                "today" -> Routes.Today.route
+                "subjects" -> Routes.Subjects.route
+                "schedules" -> Routes.Schedules.route
+                "settings" -> Routes.Settings.route
+                else -> targetRoute
+            }
+            navController.navigate(routeToNavigate) {
+                launchSingleTop = true
+            }
+            onDestinationConsumed()
+        }
+    }
 
     NavHost(
         navController = navController,

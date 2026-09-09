@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Card
@@ -62,6 +63,7 @@ fun SubjectCard(
     item: ScheduleEntry,
     schedule: Schedule,
     onEdit: () -> Unit,
+    onDuplicate: () -> Unit = {},
     onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -120,10 +122,8 @@ fun SubjectCard(
 
     val currentMinute = currentTime.hour * 60 + currentTime.minute
 
-    // Obtener el día actual de la semana en formato 0..6 (donde Lunes = 0 o según el estándar de tu modelo)
-    // java.time.DayOfWeek da Lunes = 1 .. Domingo = 7.
-    // Ajustamos a base 0 (Lunes = 0) o 1 según cómo esté configurado tu `item.dayIndex`
-    val todayIndex = currentDate.dayOfWeek.value - 1 // Suponiendo Lunes = 0
+    // Obtener el día actual de la semana en formato 0..6 (Lunes = 0)
+    val todayIndex = currentDate.dayOfWeek.value - 1
 
     // Condición estricta: debe coincidir el día real con el día de la clase Y estar dentro del rango de tiempo
     val isClassActive = item.dayIndex == todayIndex && item.isNow(
@@ -375,6 +375,18 @@ fun SubjectCard(
                                 contentDescription =
                                     "Editar",
                                 onClick = onEdit
+                            )
+
+                            CircleActionButton(
+                                icon = Icons.Default.ContentCopy,
+                                bg =
+                                    Color.Blue.copy(
+                                        alpha = 0.3f
+                                    ),
+                                bc = contentColor,
+                                contentDescription =
+                                    "Duplicar",
+                                onClick = onDuplicate
                             )
 
                             CircleActionButton(

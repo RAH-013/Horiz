@@ -17,39 +17,26 @@ import androidx.compose.ui.unit.sp
 import com.horiz.R
 
 @Composable
-fun EmptyDayView(
-    enabled: Boolean
-) {
+fun EmptyDayView() {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        if (enabled) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.sleep),
+                contentDescription = null,
+                modifier = Modifier.size(80.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
                 text = "Sin materias",
                 fontSize = 16.sp
             )
-        } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Image(
-                    painter = painterResource(
-                        id = R.drawable.sleep
-                    ),
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp)
-                )
-
-                Spacer(
-                    modifier = Modifier.height(12.dp)
-                )
-
-                Text(
-                    text = "Día deshabilitado",
-                    fontSize = 16.sp
-                )
-            }
         }
     }
 }

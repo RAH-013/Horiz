@@ -101,6 +101,8 @@ data class Schedule(
                 )
             }
 
+            schedule.cleanupUnusedResources()
+
             return schedule
         }
 
@@ -495,6 +497,8 @@ data class Schedule(
                 }
             }
 
+            schedule.cleanupUnusedResources()
+
             return schedule
         }
 
@@ -764,32 +768,60 @@ data class Schedule(
     fun removeEntry(
         entryId: Long
     ): Boolean {
-        val entry = findEntry(entryId)
+        findEntry(entryId)
             ?: return false
-
-        val subjectId = entry.subjectId
 
         val removed = days.any {
             it.removeEntry(entryId)
         }
 
-        if (removed && subjectId != null) {
-            val subjectStillExists =
-                days
-                    .flatMap { it.entries }
-                    .any {
-                        it.type == SubjectType.CLASS &&
-                                it.subjectId == subjectId
-                    }
-
-            if (!subjectStillExists) {
-                tasks.removeAll {
-                    it.subjectId == subjectId
-                }
-            }
+        if (!removed) {
+            return false
         }
 
-        return removed
+        cleanupUnusedResources()
+
+        return true
+    }
+
+    private fun cleanupUnusedResources() {
+        val activeEntries =
+            days
+                .flatMap { it.entries }
+                .filter {
+                    it.type == SubjectType.CLASS
+                }
+
+        val usedSubjectIds =
+            activeEntries
+                .mapNotNull { it.subjectId }
+                .toSet()
+
+        val usedTeacherIds =
+            activeEntries
+                .mapNotNull { it.teacherId }
+                .toSet()
+
+        val usedLocationIds =
+            activeEntries
+                .mapNotNull { it.locationId }
+                .toSet()
+
+        subjects.removeAll {
+            it.id !in usedSubjectIds
+        }
+
+        teachers.removeAll {
+            it.id !in usedTeacherIds
+        }
+
+        locations.removeAll {
+            it.id !in usedLocationIds
+        }
+
+        tasks.removeAll {
+            it.subjectId !in usedSubjectIds
+        }
     }
 
     fun clear() {
@@ -798,6 +830,9 @@ data class Schedule(
         }
 
         tasks.clear()
+        subjects.clear()
+        teachers.clear()
+        locations.clear()
     }
 
     fun findOrCreateSubject(
@@ -866,5 +901,18 @@ data class Schedule(
         ).also {
             locations.add(it)
         }
+    }
+
+    fun duplicateEntryToDay(entry: ScheduleEntry, targetDayIndex: Int) {
+        val targetDay = days.getOrNull(targetDayIndex) ?: return
+
+        if (targetDay.entries.size >= 10) return
+
+        val newEntry = entry.copy(
+            id = generateId(),
+            dayIndex = targetDayIndex
+        )
+
+        targetDay.entries.add(newEntry)
     }
 }

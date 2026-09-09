@@ -14,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.horiz.data.preferences.AppPreferences
 import com.horiz.navigation.AppNavigation
 import com.horiz.ui.theme.HorizTheme
+import com.horiz.widget.updateHorizWidgets
 import kotlinx.coroutines.launch
 
 @Composable
@@ -55,11 +56,13 @@ fun App() {
             onThemeChanged = { newTheme ->
                 scope.launch {
                     preferences.saveTheme(newTheme)
+                    updateHorizWidgets(context)
                 }
             },
             onBaseColorChanged = { newColor ->
                 scope.launch {
                     preferences.saveBaseColor(newColor)
+                    updateHorizWidgets(context)
                 }
             }
         )

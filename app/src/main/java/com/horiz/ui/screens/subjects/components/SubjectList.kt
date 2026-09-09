@@ -16,6 +16,7 @@ fun SubjectList(
     schedule: Schedule,
     onEdit: (ScheduleEntry) -> Unit,
     onDelete: (ScheduleEntry) -> Unit,
+    onDuplicate: (ScheduleEntry) -> Unit,
     onClick: (ScheduleEntry) -> Unit
 ) {
     LazyColumn(
@@ -27,20 +28,15 @@ fun SubjectList(
     ) {
         items(
             items = items,
-            key = { it.id }
+            key = { item -> item.id }
         ) { item ->
             SubjectCard(
                 item = item,
                 schedule = schedule,
-                onEdit = {
-                    onEdit(item)
-                },
-                onDelete = {
-                    onDelete(item)
-                },
-                onClick = {
-                    onClick(item)
-                }
+                onEdit = { onEdit(item) },
+                onDelete = { onDelete(item) },
+                onDuplicate = { onDuplicate(item) },
+                onClick = { onClick(item) }
             )
         }
     }

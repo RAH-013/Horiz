@@ -33,9 +33,7 @@ fun DayColumn(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(
-                ((endHour - startHour) * HOUR_HEIGHT).dp
-            )
+            .height(((endHour - startHour) * HOUR_HEIGHT).dp)
     ) {
         if (day.enabled) {
             Column(
@@ -48,7 +46,7 @@ fun DayColumn(
                             .fillMaxWidth()
                             .border(
                                 width = 0.5.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                             )
                     )
                 }
@@ -73,9 +71,7 @@ private fun DisabledDayOverlay() {
         modifier = Modifier
             .fillMaxSize()
             .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(
-                    alpha = 0.88f
-                )
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f)
             ),
         contentAlignment = Alignment.Center
     ) {

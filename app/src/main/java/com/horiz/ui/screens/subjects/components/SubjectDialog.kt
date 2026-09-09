@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.Book
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Coffee
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FreeBreakfast
@@ -26,6 +30,8 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -33,7 +39,10 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -41,7 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TimePickerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +90,8 @@ fun SubjectDialog(
         onClose()
         return
     }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val currentSubject = entry?.subjectId?.let { schedule.findSubject(it) }
     val currentTeacher = entry?.teacherId?.let { schedule.findTeacher(it) }
@@ -158,284 +169,302 @@ fun SubjectDialog(
         }
     }
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onClose,
-        shape = RoundedCornerShape(28.dp),
-        title = {
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        modifier = Modifier.imePadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = if (entry == null) Icons.Rounded.Book else Icons.Rounded.School,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-
-                Text(
-                    text = if (entry == null) "Agregar Horario" else "Editar Horario",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    Icon(
+                        imageVector = if (entry == null) Icons.Rounded.Book else Icons.Rounded.School,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(26.dp)
+                    )
+
                     Text(
-                        text = "Tipo de Bloque",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            modifier = Modifier.weight(1f),
-                            selected = type == SubjectType.CLASS,
-                            onClick = {
-                                type = SubjectType.CLASS
-                                error = null
-                            },
-                            label = { Text("Materia") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Book,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
-                                )
-                            }
+                        text = if (entry == null) "Agregar Horario" else "Editar Horario",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold
                         )
-
-                        FilterChip(
-                            modifier = Modifier.weight(1f),
-                            selected = type == SubjectType.BREAK,
-                            onClick = {
-                                type = SubjectType.BREAK
-                                error = null
-                            },
-                            label = { Text("Hora Libre") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Coffee,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
-                                )
-                            }
-                        )
-                    }
-                }
-
-                if (type == SubjectType.CLASS) {
-                    ModernEntityField(
-                        label = "Materia",
-                        value = name,
-                        icon = Icons.Rounded.Book,
-                        options = schedule.subjects.map { it.name },
-                        onValueChange = {
-                            name = it
-                            error = null
-                        },
-                        onSelect = { selectedName ->
-                            name = selectedName
-                            schedule.subjects
-                                .firstOrNull { it.name.equals(selectedName, ignoreCase = true) }
-                                ?.let { subject -> color = subject.color }
-                        }
-                    )
-
-                    ModernEntityField(
-                        label = "Profesor",
-                        value = teacher,
-                        icon = Icons.Rounded.Person,
-                        options = schedule.teachers.map { it.name },
-                        onValueChange = {
-                            teacher = it
-                            error = null
-                        },
-                        onSelect = { teacher = it }
-                    )
-
-                    ModernEntityField(
-                        label = "Aula",
-                        value = room,
-                        icon = Icons.Rounded.LocationOn,
-                        options = schedule.locations.map { it.name },
-                        onValueChange = {
-                            room = it
-                            error = null
-                        },
-                        onSelect = { room = it }
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = breakName,
-                        onValueChange = {
-                            breakName = it
-                            error = null
-                        },
-                        label = { Text("Nombre del descanso") },
-                        placeholder = { Text("Recreo") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.FreeBreakfast,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
-                // Selector de Horas con TimePicker Dialog
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Cerrar",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Tipo de Bloque",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        OutlinedTextField(
-                            value = startTime,
-                            onValueChange = {},
-                            readOnly = true,
-                            enabled = false,
-                            label = { Text("Inicio") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.AccessTime,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                disabledBorderColor = MaterialTheme.colorScheme.outline,
-                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .clickable {
-                                    showStartTimePicker = true
-                                    error = null
-                                }
-                        )
-                    }
+                    FilterChip(
+                        modifier = Modifier.weight(1f),
+                        selected = type == SubjectType.CLASS,
+                        onClick = {
+                            type = SubjectType.CLASS
+                            error = null
+                        },
+                        label = { Text("Materia") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Book,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize)
+                            )
+                        }
+                    )
 
-                    Box(modifier = Modifier.weight(1f)) {
-                        OutlinedTextField(
-                            value = endTime,
-                            onValueChange = {},
-                            readOnly = true,
-                            enabled = false,
-                            label = { Text("Fin") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.AccessTime,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                disabledBorderColor = MaterialTheme.colorScheme.outline,
-                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .clickable {
-                                    showEndTimePicker = true
-                                    error = null
-                                }
-                        )
+                    FilterChip(
+                        modifier = Modifier.weight(1f),
+                        selected = type == SubjectType.BREAK,
+                        onClick = {
+                            type = SubjectType.BREAK
+                            error = null
+                        },
+                        label = { Text("Hora Libre") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Coffee,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize)
+                            )
+                        }
+                    )
+                }
+            }
+
+            if (type == SubjectType.CLASS) {
+                ModernEntityField(
+                    label = "Materia",
+                    value = name,
+                    icon = Icons.Rounded.Book,
+                    options = schedule.subjects.map { it.name },
+                    onValueChange = {
+                        name = it
+                        error = null
+                    },
+                    onSelect = { selectedName ->
+                        name = selectedName
+                        schedule.subjects
+                            .firstOrNull { it.name.equals(selectedName, ignoreCase = true) }
+                            ?.let { subject -> color = subject.color }
                     }
+                )
+
+                ModernEntityField(
+                    label = "Profesor",
+                    value = teacher,
+                    icon = Icons.Rounded.Person,
+                    options = schedule.teachers.map { it.name },
+                    onValueChange = {
+                        teacher = it
+                        error = null
+                    },
+                    onSelect = { teacher = it }
+                )
+
+                ModernEntityField(
+                    label = "Aula",
+                    value = room,
+                    icon = Icons.Rounded.LocationOn,
+                    options = schedule.locations.map { it.name },
+                    onValueChange = {
+                        room = it
+                        error = null
+                    },
+                    onSelect = { room = it }
+                )
+            } else {
+                OutlinedTextField(
+                    value = breakName,
+                    onValueChange = {
+                        breakName = it
+                        error = null
+                    },
+                    label = { Text("Nombre del descanso") },
+                    placeholder = { Text("Recreo") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.FreeBreakfast,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    OutlinedTextField(
+                        value = startTime,
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = false,
+                        label = { Text("Inicio") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.AccessTime,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable {
+                                showStartTimePicker = true
+                                error = null
+                            }
+                    )
                 }
 
-                OutlinedButton(
-                    onClick = { showColorPicker = true },
+                Box(modifier = Modifier.weight(1f)) {
+                    OutlinedTextField(
+                        value = endTime,
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = false,
+                        label = { Text("Fin") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.AccessTime,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable {
+                                showEndTimePicker = true
+                                error = null
+                            }
+                    )
+                }
+            }
+
+            OutlinedButton(
+                onClick = { showColorPicker = true },
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Palette,
+                        contentDescription = null
+                    )
+
+                    Text(
+                        text = if (type == SubjectType.CLASS) "Color de la materia" else "Color de hora libre",
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(color))
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline,
+                                CircleShape
+                            )
+                    )
+                }
+            }
+
+            error?.let { errorMessage ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Palette,
-                            contentDescription = null
+                            imageVector = Icons.Rounded.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(18.dp)
                         )
 
                         Text(
-                            text = if (type == SubjectType.CLASS) "Color de la materia" else "Color de hora libre",
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
                         )
-
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(Color(color))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outline,
-                                    CircleShape
-                                )
-                        )
-                    }
-                }
-
-                error?.let { errorMessage ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.ErrorOutline,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(18.dp)
-                            )
-
-                            Text(
-                                text = errorMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
+
+            Button(
                 onClick = {
                     val trimmedName = name.trim()
                     val trimmedTeacher = teacher.trim()
@@ -445,7 +474,7 @@ fun SubjectDialog(
                     if (type == SubjectType.CLASS) {
                         if (trimmedName.isBlank()) {
                             error = "El nombre es obligatorio"
-                            return@TextButton
+                            return@Button
                         }
 
                         if (!isValidSubjectText(trimmedName)) {
@@ -454,12 +483,12 @@ fun SubjectDialog(
                                 "No uses espacios múltiples o bordes",
                                 Toast.LENGTH_SHORT
                             ).show()
-                            return@TextButton
+                            return@Button
                         }
 
                         if (trimmedTeacher.isBlank() || trimmedRoom.isBlank()) {
                             error = "Profesor y aula son obligatorios"
-                            return@TextButton
+                            return@Button
                         }
 
                         if (!isValidSubjectText(trimmedTeacher) || !isValidSubjectText(trimmedRoom)) {
@@ -468,7 +497,7 @@ fun SubjectDialog(
                                 "Verifica el formato del texto ingresado",
                                 Toast.LENGTH_SHORT
                             ).show()
-                            return@TextButton
+                            return@Button
                         }
                     } else {
                         if (!isValidSubjectText(trimmedBreakName)) {
@@ -477,7 +506,7 @@ fun SubjectDialog(
                                 "Verifica el formato del texto ingresado",
                                 Toast.LENGTH_SHORT
                             ).show()
-                            return@TextButton
+                            return@Button
                         }
                     }
 
@@ -490,7 +519,7 @@ fun SubjectDialog(
                             "Hora inválida",
                             Toast.LENGTH_SHORT
                         ).show()
-                        return@TextButton
+                        return@Button
                     }
 
                     if (start >= end) {
@@ -499,7 +528,7 @@ fun SubjectDialog(
                             "Rango de hora inválido",
                             Toast.LENGTH_SHORT
                         ).show()
-                        return@TextButton
+                        return@Button
                     }
 
                     if (dayNode.hasConflict(startMinute = start, endMinute = end, ignoredEntryId = entry?.id)) {
@@ -510,7 +539,7 @@ fun SubjectDialog(
                         ).show()
 
                         error = "El horario se cruza con otra materia"
-                        return@TextButton
+                        return@Button
                     }
 
                     val formattedName = if (type == SubjectType.CLASS) formatWords(trimmedName) else formatWords(trimmedBreakName)
@@ -554,27 +583,29 @@ fun SubjectDialog(
                             "No se pudo guardar",
                             Toast.LENGTH_SHORT
                         ).show()
-                        return@TextButton
+                        return@Button
                     }
 
                     CoroutineScope(Dispatchers.IO).launch {
                         storage.createSchedule(schedule)
                         onClose()
                     }
-                }
+                },
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
             ) {
                 Text(
-                    text = if (entry == null) "Agregar" else "Guardar",
-                    fontWeight = FontWeight.Bold
+                    text = if (entry == null) "Agregar Horario" else "Guardar Cambios",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onClose) {
-                Text("Cancelar")
-            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
-    )
+    }
 
     if (showStartTimePicker) {
         TimePickerDialog(
@@ -669,14 +700,21 @@ private fun ModernEntityField(
     onValueChange: (String) -> Unit,
     onSelect: (String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
-    val filteredOptions = options.filter { option ->
-        option.contains(value, ignoreCase = true)
+    val filteredOptions = remember(value, options) {
+        if (value.isBlank()) {
+            emptyList()
+        } else {
+            options.filter {
+                it.contains(value, ignoreCase = true) && !it.equals(value, ignoreCase = true)
+            }
+        }
     }
 
+    var expanded by remember { mutableStateOf(false) }
+    val showDropdown = expanded && filteredOptions.isNotEmpty()
+
     ExposedDropdownMenuBox(
-        expanded = expanded && filteredOptions.isNotEmpty(),
+        expanded = showDropdown,
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
@@ -694,33 +732,31 @@ private fun ModernEntityField(
                 )
             },
             trailingIcon = {
-                if (options.isNotEmpty()) {
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                if (filteredOptions.isNotEmpty()) {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = showDropdown)
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .menuAnchor()
+                .menuAnchor(MenuAnchorType.PrimaryEditable)
         )
 
         if (filteredOptions.isNotEmpty()) {
             ExposedDropdownMenu(
-                expanded = expanded,
+                expanded = showDropdown,
                 onDismissRequest = { expanded = false }
             ) {
-                filteredOptions
-                    .take(5)
-                    .forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option) },
-                            onClick = {
-                                onSelect(option)
-                                expanded = false
-                            }
-                        )
-                    }
+                filteredOptions.take(5).forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onSelect(option)
+                            expanded = false
+                        }
+                    )
+                }
             }
         }
     }

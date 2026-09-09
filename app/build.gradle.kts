@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.zxing.core)
     implementation(libs.zxing.android.embedded)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

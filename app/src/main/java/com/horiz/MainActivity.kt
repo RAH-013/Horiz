@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.horiz.alarms.AppAlarmScheduler
 import com.horiz.alarms.NotificationHelper
 import com.horiz.data.preferences.AppPreferences
+import com.horiz.navigation.AppNavigation
 import com.horiz.ui.screens.AlarmTriggerScreen
 import com.horiz.ui.theme.AppTheme
 import com.horiz.ui.theme.BaseColor
@@ -25,6 +26,7 @@ class MainActivity : ComponentActivity() {
 
     private var showAlarmScreen by mutableStateOf(false)
     private var alarmSubjectData by mutableStateOf<Pair<String, String>?>(null)
+    private var destinationRoute by mutableStateOf<String?>(null)
 
     private lateinit var notificationHelper: NotificationHelper
     private lateinit var alarmScheduler: AppAlarmScheduler
@@ -37,7 +39,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        handleAlarmIntent(intent)
+        handleIntent(intent)
 
         setContent {
             val preferences = AppPreferences(applicationContext)
@@ -90,7 +92,14 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 } else {
-                    App()
+                    AppNavigation(
+                        appTheme = appTheme,
+                        baseColor = baseColor,
+                        onThemeChanged = {},
+                        onBaseColorChanged = {},
+                        startDestinationOverride = destinationRoute,
+                        onDestinationConsumed = { destinationRoute = null }
+                    )
                 }
             }
         }
@@ -100,10 +109,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
 
         setIntent(intent)
-        handleAlarmIntent(intent)
+        handleIntent(intent)
     }
 
-    private fun handleAlarmIntent(intent: Intent?) {
+    private fun handleIntent(intent: Intent?) {
         if (
             intent?.getStringExtra(EXTRA_NAVIGATE_TO) ==
             ROUTE_ALARM_TRIGGER
@@ -122,6 +131,11 @@ class MainActivity : ComponentActivity() {
             )
 
             showAlarmScreen = true
+        } else {
+            val route = intent?.getStringExtra(EXTRA_NAVIGATE_TO)
+            if (!route.isNullOrEmpty()) {
+                destinationRoute = route
+            }
         }
     }
 

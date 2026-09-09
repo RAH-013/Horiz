@@ -33,9 +33,7 @@ class ScheduleStorage(context: Context) {
         ensureKingExists()
     }
 
-    private fun encrypt(
-        text: String
-    ): String {
+    private fun encrypt(text: String): String {
         val cipher = Cipher.getInstance("AES")
         cipher.init(Cipher.ENCRYPT_MODE, key)
 
@@ -47,9 +45,7 @@ class ScheduleStorage(context: Context) {
         )
     }
 
-    private fun decrypt(
-        text: String
-    ): String {
+    private fun decrypt(text: String): String {
         val cipher = Cipher.getInstance("AES")
         cipher.init(Cipher.DECRYPT_MODE, key)
 
@@ -64,18 +60,14 @@ class ScheduleStorage(context: Context) {
         )
     }
 
-    private fun encode(
-        value: String
-    ): String {
+    private fun encode(value: String): String {
         return Base64.encodeToString(
             value.toByteArray(Charsets.UTF_8),
             Base64.NO_WRAP or Base64.URL_SAFE
         )
     }
 
-    private fun decode(
-        value: String
-    ): String {
+    private fun decode(value: String): String {
         return String(
             Base64.decode(
                 value,
@@ -85,9 +77,16 @@ class ScheduleStorage(context: Context) {
         )
     }
 
-    fun createSchedule(
-        schedule: Schedule
-    ) {
+    private fun notifyScheduleChanged() {
+        prefs.edit()
+            .putLong(
+                "schedule_version",
+                System.currentTimeMillis()
+            )
+            .apply()
+    }
+
+    fun createSchedule(schedule: Schedule) {
         val file = File(
             dir,
             "${schedule.name}.hzsch"
@@ -103,11 +102,11 @@ class ScheduleStorage(context: Context) {
         if (getKing() == null) {
             setKing(schedule.name)
         }
+
+        notifyScheduleChanged()
     }
 
-    fun getSchedule(
-        name: String
-    ): Schedule? {
+    fun getSchedule(name: String): Schedule? {
         val file = File(
             dir,
             "$name.hzsch"
@@ -150,9 +149,7 @@ class ScheduleStorage(context: Context) {
             ?: emptyList()
     }
 
-    fun deleteSchedule(
-        name: String
-    ) {
+    fun deleteSchedule(name: String) {
         File(
             dir,
             "$name.hzsch"
@@ -170,32 +167,10 @@ class ScheduleStorage(context: Context) {
         }
 
         ensureKingExists()
+        notifyScheduleChanged()
     }
 
-    fun removeAllSchedules() {
-        dir
-            .listFiles()
-            ?.filter {
-                it.isFile &&
-                        (
-                                it.extension == "hzsch" ||
-                                        it.extension == "hztasks"
-                                )
-            }
-            ?.forEach {
-                it.delete()
-            }
-
-        prefs.edit()
-            .remove("king_schedule")
-            .apply()
-
-        ensureKingExists()
-    }
-
-    fun setKing(
-        name: String
-    ) {
+    fun setKing(name: String) {
         if (name !in getSchedules()) {
             return
         }
@@ -206,6 +181,8 @@ class ScheduleStorage(context: Context) {
                 name
             )
             .apply()
+
+        notifyScheduleChanged()
     }
 
     fun getKing(): String? {
@@ -215,59 +192,14 @@ class ScheduleStorage(context: Context) {
         )
     }
 
-    fun debugFiles(): String {
-        val sb = StringBuilder()
-
-        dir
-            .listFiles()
-            ?.filter {
-                it.isFile &&
-                        (
-                                it.extension == "hzsch" ||
-                                        it.extension == "hztasks"
-                                )
-            }
-            ?.forEach { file ->
-                val size = file.length()
-                val kb = size / 1024.0
-
-                val content = runCatching {
-                    decrypt(
-                        file.readText(
-                            Charsets.UTF_8
-                        )
-                    )
-                }.getOrElse {
-                    "ERROR AL LEER"
-                }
-
-                sb.appendLine(
-                    "Archivo: ${file.name}"
-                )
-
-                sb.appendLine(
-                    "Peso: %.2f KB (%d bytes)".format(
-                        kb,
-                        size
-                    )
-                )
-
-                sb.appendLine(
-                    "Contenido plano:"
-                )
-
-                sb.appendLine(content)
-                sb.appendLine(
-                    "────────────────────"
-                )
-            }
-
-        return sb.toString()
+    fun getScheduleVersion(): Long {
+        return prefs.getLong(
+            "schedule_version",
+            0L
+        )
     }
 
-    private fun saveTasks(
-        schedule: Schedule
-    ) {
+    private fun saveTasks(schedule: Schedule) {
         val file = File(
             dir,
             "${schedule.name}.hztasks"

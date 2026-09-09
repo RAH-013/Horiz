@@ -107,7 +107,6 @@ fun TaskDialog(
             Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Campo Título
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -123,7 +122,6 @@ fun TaskDialog(
                     shape = MaterialTheme.shapes.medium
                 )
 
-                // Campo Descripción
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },

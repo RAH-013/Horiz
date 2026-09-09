@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,8 +16,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,14 +23,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +59,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -62,15 +71,54 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-private val VSCodePresets = listOf(
-    0xFFFF5555L,
-    0xFFFFB86CL,
-    0xFFF1FA8CL,
-    0xFF50FA7BL,
-    0xFF8BE9FDL,
-    0xFFBD93F9L,
-    0xFFFF79C6L,
-    0xFF6272A4L
+data class PresetCategory(
+    val name: String,
+    val colors: List<Long>
+)
+
+private val ColorPresetCategories = listOf(
+    PresetCategory(
+        name = "Vibrantes",
+        colors = listOf(
+            0xFFFF5555L, 0xFFFFB86CL, 0xFFF1FA8CL, 0xFF50FA7BL,
+            0xFF8BE9FDL, 0xFFBD93F9L, 0xFFFF79C6L, 0xFF6272A4L
+        )
+    ),
+    PresetCategory(
+        name = "Pastel",
+        colors = listOf(
+            0xFFFFB3BAL, 0xFFFFDFBAL, 0xFFFFFFC5L, 0xFFBAFFC9L,
+            0xFFBAE1FFL, 0xFFE8AEFFL, 0xFFD5AAFFL, 0xFFC5A3FFL
+        )
+    ),
+    PresetCategory(
+        name = "Neón",
+        colors = listOf(
+            0xFFFF007FL, 0xFF00F0FFL, 0xFF00FF66L, 0xFFFFE600L,
+            0xFFBF00FFL, 0xFFFF3300L, 0xFF0033FFL, 0xFF33FF00L
+        )
+    ),
+    PresetCategory(
+        name = "Cálidos",
+        colors = listOf(
+            0xFF8D5B4CL, 0xFFD4A373L, 0xFFFAEDCDL, 0xFFE9EDC9L,
+            0xFFCCD5AEL, 0xFFBC6C25L, 0xFFDDA15EL, 0xFF606C38L
+        )
+    ),
+    PresetCategory(
+        name = "Oscuros",
+        colors = listOf(
+            0xFF1E1E2EL, 0xFF282A36L, 0xFF181825L, 0xFF0F172AL,
+            0xFF1F2937L, 0xFF1A1B26L, 0xFF2D1B69L, 0xFF1E293BL
+        )
+    ),
+    PresetCategory(
+        name = "Monocromo",
+        colors = listOf(
+            0xFF121212L, 0xFF2D2D2DL, 0xFF4A4A4AL, 0xFF717171L,
+            0xFF9E9E9EL, 0xFFC4C4C4L, 0xFFE0E0E0L, 0xFFF5F5F5L
+        )
+    )
 )
 
 private fun colorToHsv(color: Color): FloatArray {
@@ -131,7 +179,6 @@ private fun parseHexToColor(hex: String): Color? {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ColorPickerDialog(
     initial: Long,
@@ -159,6 +206,8 @@ fun ColorPickerDialog(
         mutableStateOf(String.format("#%02X%02X%02X", red, green, blue))
     }
 
+    var selectedCategoryIndex by remember { mutableIntStateOf(0) }
+
     LaunchedEffect(currentColor) {
         val formatted = String.format("#%02X%02X%02X", red, green, blue)
         if (hexText.uppercase() != formatted) {
@@ -166,7 +215,6 @@ fun ColorPickerDialog(
         }
     }
 
-    // Adaptación a los colores del tema base de Material 3
     val themeBackground = MaterialTheme.colorScheme.surface
     val themeBorder = MaterialTheme.colorScheme.outlineVariant
     val themeHeader = MaterialTheme.colorScheme.surfaceVariant
@@ -201,11 +249,11 @@ fun ColorPickerDialog(
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Surface(
                     color = themeHeader,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, themeBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -216,52 +264,38 @@ fun ColorPickerDialog(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(currentColor)
-                                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
                         )
 
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            BasicTextField(
-                                value = hexText,
-                                onValueChange = { input ->
-                                    hexText = input
-                                    val parsedColor = parseHexToColor(input)
-                                    if (parsedColor != null) {
-                                        val hsv = colorToHsv(parsedColor)
-                                        hue = hsv[0]
-                                        saturation = hsv[1]
-                                        value = hsv[2]
-                                    }
-                                },
-                                textStyle = TextStyle(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = themeOnSurface
-                                ),
-                                cursorBrush = SolidColor(themeAccent),
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
-                                    .border(1.dp, themeBorder, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                            )
-
-                            Text(
-                                text = "rgb($red, $green, $blue)",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                color = themeOnSurfaceVariant,
-                                modifier = Modifier.padding(start = 2.dp)
-                            )
-                        }
+                        BasicTextField(
+                            value = hexText,
+                            onValueChange = { input ->
+                                hexText = input
+                                val parsedColor = parseHexToColor(input)
+                                if (parsedColor != null) {
+                                    val hsv = colorToHsv(parsedColor)
+                                    hue = hsv[0]
+                                    saturation = hsv[1]
+                                    value = hsv[2]
+                                }
+                            },
+                            textStyle = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = themeOnSurface
+                            ),
+                            cursorBrush = SolidColor(themeAccent),
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                                .border(1.dp, themeBorder, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
 
                         Box(
                             modifier = Modifier
@@ -287,7 +321,7 @@ fun ColorPickerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp),
+                        .height(170.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     SatValPanel(
@@ -301,8 +335,8 @@ fun ColorPickerDialog(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, themeBorder, RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, themeBorder, RoundedCornerShape(14.dp))
                     )
 
                     HueBar(
@@ -311,8 +345,8 @@ fun ColorPickerDialog(
                         modifier = Modifier
                             .width(28.dp)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, themeBorder, RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, themeBorder, RoundedCornerShape(14.dp))
                     )
                 }
 
@@ -325,25 +359,56 @@ fun ColorPickerDialog(
                         color = themeOnSurfaceVariant
                     )
 
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        VSCodePresets.forEach { colorLong ->
-                            val presetColor = Color(colorLong)
+                        itemsIndexed(ColorPresetCategories) { index, category ->
+                            FilterChip(
+                                selected = selectedCategoryIndex == index,
+                                onClick = { selectedCategoryIndex = index },
+                                label = {
+                                    Text(
+                                        text = category.name,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    )
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = themeAccent,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            )
+                        }
+                    }
+
+                    val currentCategory = ColorPresetCategories[selectedCategoryIndex]
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        currentCategory.colors.forEach { colorLong ->
+                            val presetColor = Color(colorLong or 0xFF000000L)
                             val isSelected = (red == (presetColor.red * 255).toInt()) &&
                                     (green == (presetColor.green * 255).toInt()) &&
                                     (blue == (presetColor.blue * 255).toInt())
 
+                            val contentColor = if (presetColor.luminance() > 0.5f) Color.Black else Color.White
+
                             Box(
+                                contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .size(32.dp)
+                                    .clip(CircleShape)
                                     .background(presetColor)
                                     .border(
-                                        width = if (isSelected) 2.dp else 0.dp,
-                                        color = themeOnSurface
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) themeOnSurface else Color.White.copy(alpha = 0.2f),
+                                        shape = CircleShape
                                     )
                                     .clickable {
                                         val hsv = colorToHsv(presetColor)
@@ -351,7 +416,20 @@ fun ColorPickerDialog(
                                         saturation = hsv[1]
                                         value = hsv[2]
                                     }
-                            )
+                            ) {
+                                AnimatedVisibility(
+                                    visible = isSelected,
+                                    enter = fadeIn(),
+                                    exit = fadeOut()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Check,
+                                        contentDescription = null,
+                                        tint = contentColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

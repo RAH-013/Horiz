@@ -3,6 +3,7 @@ package com.horiz.ui.screens.schedule
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,7 +16,7 @@ import com.horiz.ui.screens.schedule.components.ScheduleDayHeader
 import com.horiz.ui.screens.schedule.components.ScheduleGrid
 import com.horiz.ui.screens.schedule.components.ScheduleTextView
 import com.horiz.ui.screens.schedule.components.ScheduleViewModeToggle
-import java.util.Calendar
+import java.time.LocalDate
 
 private const val DEFAULT_START_HOUR = 7
 private const val DEFAULT_END_HOUR = 22
@@ -37,27 +38,26 @@ fun ScheduleViewScreen(
         )
     }
 
-    val todayIndex = remember {
-        (
-                Calendar.getInstance()
-                    .get(Calendar.DAY_OF_WEEK) + 5
-                ) % 7
-    }
+    val horizontalScrollState = rememberScrollState()
 
     val enabledDays = remember(schedule) {
         schedule.days.filter { it.enabled }
     }
 
     val visibleDays = remember(schedule) {
-        schedule.days
-            .filter { it.enabled }
-            .map { dayNames[it.index] }
+        enabledDays.map { dayNames[it.index] }
+    }
+
+    val currentDayIndexInWeek = remember {
+        (LocalDate.now().dayOfWeek.value - 1).coerceIn(0, 6)
+    }
+
+    val todayIndexInVisibleDays = remember(enabledDays) {
+        enabledDays.indexOfFirst { it.index == currentDayIndexInWeek }
     }
 
     val timeRange = remember(schedule) {
-        val entries = schedule.days
-            .filter { it.enabled }
-            .flatMap { it.entries }
+        val entries = enabledDays.flatMap { it.entries }
 
         if (entries.isEmpty()) {
             DEFAULT_START_HOUR to DEFAULT_END_HOUR
@@ -66,10 +66,9 @@ fun ScheduleViewScreen(
             val latestMinute = entries.maxOf { it.endMinute }
 
             val startHour = earliestMinute / 60
-            val endHour = (latestMinute + 59) / 60
+            val endHour = if (latestMinute % 60 == 0) latestMinute / 60 else (latestMinute / 60) + 1
 
-            startHour.coerceIn(0, 23) to
-                    endHour.coerceIn(1, 24)
+            startHour.coerceIn(0, 23) to endHour.coerceIn(1, 24)
         }
     }
 
@@ -101,14 +100,17 @@ fun ScheduleViewScreen(
             } else {
                 ScheduleDayHeader(
                     days = visibleDays,
-                    todayIndex = todayIndex
+                    todayIndex = todayIndexInVisibleDays,
+                    scrollState = horizontalScrollState
                 )
 
                 ScheduleGrid(
                     schedule = schedule,
                     days = enabledDays,
                     startHour = timeRange.first,
-                    endHour = timeRange.second
+                    endHour = timeRange.second,
+                    horizontalScrollState = horizontalScrollState,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
