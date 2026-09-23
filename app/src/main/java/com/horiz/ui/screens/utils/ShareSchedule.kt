@@ -1,6 +1,5 @@
 package com.horiz.utils
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.google.zxing.BarcodeFormat
@@ -10,100 +9,26 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.horiz.data.model.Schedule
 import com.horiz.storage.ScheduleStorage
 import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.zip.Deflater
 import java.util.zip.Inflater
 
 object ShareSchedule {
-
-    private const val CHARACTER_SET = "ISO-8859-1"
-
-    private fun compress(text: String): String {
-        val input = text.toByteArray(Charsets.UTF_8)
-
-        val deflater = Deflater(
-            Deflater.BEST_COMPRESSION,
-            true
-        )
-
-        return try {
-            deflater.setInput(input)
-            deflater.finish()
-
-            val output = ByteArrayOutputStream(
-                input.size
-            )
-
-            val buffer = ByteArray(8192)
-
-            while (!deflater.finished()) {
-                val count = deflater.deflate(buffer)
-                output.write(buffer, 0, count)
-            }
-
-            String(
-                output.toByteArray(),
-                Charsets.ISO_8859_1
-            )
-        } finally {
-            deflater.end()
-        }
-    }
-
-    fun decompress(data: String): String {
-        val compressed =
-            data.toByteArray(Charsets.ISO_8859_1)
-
-        val inflater = Inflater(true)
-
-        return try {
-            inflater.setInput(compressed)
-
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-
-            while (!inflater.finished()) {
-                val count =
-                    inflater.inflate(buffer)
-
-                if (count == 0) {
-                    if (inflater.needsInput()) {
-                        throw IllegalArgumentException(
-                            "Datos comprimidos incompletos"
-                        )
-                    }
-
-                    if (inflater.needsDictionary()) {
-                        throw IllegalArgumentException(
-                            "Diccionario de compresión no válido"
-                        )
-                    }
-                }
-
-                output.write(
-                    buffer,
-                    0,
-                    count
-                )
-            }
-
-            String(
-                output.toByteArray(),
-                Charsets.UTF_8
-            )
-        } finally {
-            inflater.end()
-        }
-    }
+    private const val CHARACTER_SET = "UTF-8"
 
     fun getScheduleText(
         schedule: Schedule,
         storage: ScheduleStorage
     ): String {
-        return storage.getSchedule(schedule.name)
-            ?.serialize()
-            ?: throw IllegalArgumentException(
-                "El horario no existe"
-            )
+        val storedSchedule =
+            storage.getSchedule(schedule.name)
+                ?: throw IllegalArgumentException(
+                    "El horario no existe"
+                )
+
+        return encode(
+            storedSchedule.serializeForQr()
+        )
     }
 
     fun createSingleQRCode(
@@ -111,17 +36,132 @@ object ShareSchedule {
         storage: ScheduleStorage,
         size: Int = 768
     ): Bitmap {
-        val text = getScheduleText(
+        val content = getScheduleText(
             schedule = schedule,
             storage = storage
         )
 
-        val compressed = compress(text)
-
         return generateQR(
-            content = compressed,
+            content = content,
             size = size
         )
+    }
+
+    fun encode(data: ByteArray): String {
+        val compressed = compress(data)
+
+        return Base64
+            .getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(compressed)
+    }
+
+    fun decode(text: String): ByteArray {
+        if (text.isBlank()) {
+            throw IllegalArgumentException(
+                "El contenido del código QR está vacío."
+            )
+        }
+
+        val compressed = try {
+            Base64.getUrlDecoder().decode(text)
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException(
+                "El código QR contiene datos inválidos."
+            )
+        }
+
+        return decompress(compressed)
+    }
+
+    fun decodeSchedule(text: String): Schedule {
+        return Schedule.parseQr(
+            decode(text)
+        )
+    }
+
+    private fun compress(
+        data: ByteArray
+    ): ByteArray {
+        val deflater = Deflater(
+            Deflater.BEST_COMPRESSION,
+            true
+        )
+
+        return try {
+            deflater.setInput(data)
+            deflater.finish()
+
+            val output = ByteArrayOutputStream(
+                data.size
+            )
+
+            val buffer = ByteArray(8192)
+
+            while (!deflater.finished()) {
+                val count = deflater.deflate(buffer)
+
+                if (count > 0) {
+                    output.write(
+                        buffer,
+                        0,
+                        count
+                    )
+                }
+            }
+
+            output.toByteArray()
+        } finally {
+            deflater.end()
+        }
+    }
+
+    private fun decompress(
+        data: ByteArray
+    ): ByteArray {
+        val inflater = Inflater(true)
+
+        return try {
+            inflater.setInput(data)
+
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+
+            while (!inflater.finished()) {
+                val count = inflater.inflate(buffer)
+
+                if (count > 0) {
+                    output.write(
+                        buffer,
+                        0,
+                        count
+                    )
+                    continue
+                }
+
+                if (inflater.needsInput()) {
+                    throw IllegalArgumentException(
+                        "Datos comprimidos incompletos."
+                    )
+                }
+
+                if (inflater.needsDictionary()) {
+                    throw IllegalArgumentException(
+                        "Diccionario de compresión no válido."
+                    )
+                }
+
+                if (!inflater.finished()) {
+                    throw IllegalArgumentException(
+                        "Datos comprimidos inválidos."
+                    )
+                }
+            }
+
+            output.toByteArray()
+        } finally {
+            inflater.end()
+        }
     }
 
     private fun generateQR(
@@ -130,8 +170,8 @@ object ShareSchedule {
     ): Bitmap {
         val hints = mapOf(
             EncodeHintType.CHARACTER_SET to CHARACTER_SET,
-            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-            EncodeHintType.MARGIN to 4
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L,
+            EncodeHintType.MARGIN to 2
         )
 
         val bitMatrix = QRCodeWriter().encode(

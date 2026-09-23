@@ -1,6 +1,11 @@
 package com.horiz.data.model
 
 import android.util.Base64
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.util.zip.CRC32
 
 data class Schedule(
     val name: String,
@@ -26,8 +31,25 @@ data class Schedule(
         private const val CLASS_CODE = "C"
         private const val BREAK_CODE = "B"
 
+        private const val QR_VERSION = 1
+        private const val QR_CLASS = 0
+        private const val QR_BREAK = 1
+        private const val QR_NULL_INDEX = 0xFFFF
+
         private fun generateId(): Long =
             System.nanoTime()
+
+        private fun generateUniqueId(
+            usedIds: MutableSet<Long>
+        ): Long {
+            var id = System.nanoTime()
+
+            while (id == 0L || !usedIds.add(id)) {
+                id++
+            }
+
+            return id
+        }
 
         private fun encode(value: String): String {
             return Base64.encodeToString(
@@ -392,6 +414,373 @@ data class Schedule(
                 it.startMinute
             }
         }
+
+        fun parseQr(data: ByteArray): Schedule {
+            require(data.size >= 8) {
+                "Datos HZ3 QR insuficientes"
+            }
+
+            val payloadSize =
+                data.size - 4
+
+            val payload =
+                data.copyOfRange(
+                    0,
+                    payloadSize
+                )
+
+            val storedCrc =
+                ((data[payloadSize].toInt() and 0xFF) shl 24) or
+                        ((data[payloadSize + 1].toInt() and 0xFF) shl 16) or
+                        ((data[payloadSize + 2].toInt() and 0xFF) shl 8) or
+                        (data[payloadSize + 3].toInt() and 0xFF)
+
+            val crc = CRC32()
+            crc.update(payload)
+
+            require(
+                crc.value.toInt() == storedCrc
+            ) {
+                "El código QR está dañado"
+            }
+
+            val input =
+                DataInputStream(
+                    ByteArrayInputStream(payload)
+                )
+
+            val magic =
+                ByteArray(3)
+
+            input.readFully(magic)
+
+            require(
+                String(
+                    magic,
+                    Charsets.US_ASCII
+                ) == FORMAT_VERSION
+            ) {
+                "Formato HZ3 QR inválido"
+            }
+
+            val version =
+                input.readUnsignedByte()
+
+            require(
+                version == QR_VERSION
+            ) {
+                "Versión HZ3 QR no compatible"
+            }
+
+            val enabled =
+                input.readBoolean()
+
+            val name =
+                readQrString(input)
+
+            val usedIds =
+                mutableSetOf<Long>()
+
+            val subjects =
+                readQrSubjects(
+                    input,
+                    usedIds
+                )
+
+            val teachers =
+                readQrTeachers(
+                    input,
+                    usedIds
+                )
+
+            val locations =
+                readQrLocations(
+                    input,
+                    usedIds
+                )
+
+            val schedule =
+                Schedule(
+                    name = name,
+                    enabled = enabled,
+                    subjects = subjects,
+                    teachers = teachers,
+                    locations = locations
+                )
+
+            for (dayIndex in 0 until DAYS_PER_WEEK) {
+                readQrDay(
+                    input = input,
+                    dayIndex = dayIndex,
+                    schedule = schedule,
+                    usedIds = usedIds
+                )
+            }
+
+            require(
+                input.available() == 0
+            ) {
+                "Datos adicionales HZ3 QR inválidos"
+            }
+
+            return schedule
+        }
+
+        private fun readQrSubjects(
+            input: DataInputStream,
+            usedIds: MutableSet<Long>
+        ): MutableList<Subject> {
+            val count =
+                input.readUnsignedShort()
+
+            val subjects =
+                ArrayList<Subject>(count)
+
+            repeat(count) {
+                val color =
+                    input.readLong()
+
+                val name =
+                    readQrString(input)
+
+                subjects.add(
+                    Subject(
+                        id = generateUniqueId(usedIds),
+                        name = name,
+                        color = color
+                    )
+                )
+            }
+
+            return subjects
+        }
+
+        private fun readQrTeachers(
+            input: DataInputStream,
+            usedIds: MutableSet<Long>
+        ): MutableList<Teacher> {
+            val count =
+                input.readUnsignedShort()
+
+            val teachers =
+                ArrayList<Teacher>(count)
+
+            repeat(count) {
+                val name =
+                    readQrString(input)
+
+                teachers.add(
+                    Teacher(
+                        id = generateUniqueId(usedIds),
+                        name = name
+                    )
+                )
+            }
+
+            return teachers
+        }
+
+        private fun readQrLocations(
+            input: DataInputStream,
+            usedIds: MutableSet<Long>
+        ): MutableList<Location> {
+            val count =
+                input.readUnsignedShort()
+
+            val locations =
+                ArrayList<Location>(count)
+
+            repeat(count) {
+                val name =
+                    readQrString(input)
+
+                locations.add(
+                    Location(
+                        id = generateUniqueId(usedIds),
+                        name = name
+                    )
+                )
+            }
+
+            return locations
+        }
+
+        private fun readQrDay(
+            input: DataInputStream,
+            dayIndex: Int,
+            schedule: Schedule,
+            usedIds: MutableSet<Long>
+        ) {
+            val dayEnabled =
+                input.readBoolean()
+
+            val entryCount =
+                input.readUnsignedShort()
+
+            val day =
+                schedule.days[dayIndex]
+
+            day.setEnabled(dayEnabled)
+
+            repeat(entryCount) {
+
+                val type =
+                    input.readUnsignedByte()
+
+                val startMinute =
+                    input.readUnsignedShort()
+
+                val endMinute =
+                    input.readUnsignedShort()
+
+                val color =
+                    input.readLong()
+
+                when (type) {
+
+                    QR_CLASS -> {
+
+                        val subjectIndex =
+                            input.readUnsignedShort()
+
+                        val teacherIndex =
+                            input.readUnsignedShort()
+
+                        val locationIndex =
+                            input.readUnsignedShort()
+
+                        val subject =
+                            schedule.subjects.getOrNull(
+                                subjectIndex
+                            )
+                                ?: throw IllegalArgumentException(
+                                    "Materia HZ3 QR inexistente"
+                                )
+
+                        val teacherId =
+                            if (
+                                teacherIndex ==
+                                QR_NULL_INDEX
+                            ) {
+                                null
+                            } else {
+                                schedule.teachers
+                                    .getOrNull(
+                                        teacherIndex
+                                    )
+                                    ?.id
+                                    ?: throw IllegalArgumentException(
+                                        "Profesor HZ3 QR inexistente"
+                                    )
+                            }
+
+                        val locationId =
+                            if (
+                                locationIndex ==
+                                QR_NULL_INDEX
+                            ) {
+                                null
+                            } else {
+                                schedule.locations
+                                    .getOrNull(
+                                        locationIndex
+                                    )
+                                    ?.id
+                                    ?: throw IllegalArgumentException(
+                                        "Ubicación HZ3 QR inexistente"
+                                    )
+                            }
+
+                        day.entries.add(
+                            ScheduleEntry(
+                                id = generateUniqueId(
+                                    usedIds
+                                ),
+                                subjectId =
+                                    subject.id,
+                                teacherId =
+                                    teacherId,
+                                locationId =
+                                    locationId,
+                                startMinute =
+                                    startMinute,
+                                endMinute =
+                                    endMinute,
+                                dayIndex =
+                                    dayIndex,
+                                color =
+                                    color,
+                                type =
+                                    SubjectType.CLASS,
+                                name = null
+                            )
+                        )
+                    }
+
+                    QR_BREAK -> {
+
+                        val breakName =
+                            readQrString(input)
+
+                        require(
+                            breakName.isNotBlank()
+                        ) {
+                            "Recreo HZ3 QR sin nombre"
+                        }
+
+                        day.entries.add(
+                            ScheduleEntry(
+                                id = generateUniqueId(
+                                    usedIds
+                                ),
+                                subjectId = null,
+                                teacherId = null,
+                                locationId = null,
+                                startMinute =
+                                    startMinute,
+                                endMinute =
+                                    endMinute,
+                                dayIndex =
+                                    dayIndex,
+                                color =
+                                    color,
+                                type =
+                                    SubjectType.BREAK,
+                                name =
+                                    breakName
+                            )
+                        )
+                    }
+
+                    else -> {
+                        throw IllegalArgumentException(
+                            "Tipo de entrada HZ3 QR inválido"
+                        )
+                    }
+                }
+            }
+
+            day.entries.sortBy {
+                it.startMinute
+            }
+        }
+
+        private fun readQrString(
+            input: DataInputStream
+        ): String {
+            val length =
+                input.readUnsignedShort()
+
+            val bytes =
+                ByteArray(length)
+
+            input.readFully(bytes)
+
+            return String(
+                bytes,
+                Charsets.UTF_8
+            )
+        }
     }
 
     fun serialize(): String {
@@ -469,9 +858,7 @@ data class Schedule(
                         append(ENTRY_SEPARATOR)
 
                         append(
-                            if (
-                                subject != null
-                            ) {
+                            if (subject != null) {
                                 encode(subject.name)
                             } else {
                                 NULL_VALUE
@@ -481,9 +868,7 @@ data class Schedule(
                         append(ENTRY_SEPARATOR)
 
                         append(
-                            if (
-                                teacher != null
-                            ) {
+                            if (teacher != null) {
                                 encode(teacher.name)
                             } else {
                                 NULL_VALUE
@@ -493,9 +878,7 @@ data class Schedule(
                         append(ENTRY_SEPARATOR)
 
                         append(
-                            if (
-                                location != null
-                            ) {
+                            if (location != null) {
                                 encode(location.name)
                             } else {
                                 NULL_VALUE
@@ -517,7 +900,8 @@ data class Schedule(
                         append(ENTRY_SEPARATOR)
 
                         if (
-                            entry.type == SubjectType.BREAK
+                            entry.type ==
+                            SubjectType.BREAK
                         ) {
                             append(
                                 encode(
@@ -538,6 +922,211 @@ data class Schedule(
                     }
             }
         }
+    }
+
+    fun serializeForQr(): ByteArray {
+        val payload =
+            ByteArrayOutputStream()
+
+        DataOutputStream(payload).use { output ->
+
+            output.writeBytes(FORMAT_VERSION)
+            output.writeByte(QR_VERSION)
+
+            output.writeBoolean(enabled)
+
+            writeQrString(
+                output,
+                name
+            )
+
+            require(subjects.size <= 65535)
+            output.writeShort(subjects.size)
+
+            for (subject in subjects) {
+                output.writeLong(subject.color)
+
+                writeQrString(
+                    output,
+                    subject.name
+                )
+            }
+
+            require(teachers.size <= 65535)
+            output.writeShort(teachers.size)
+
+            for (teacher in teachers) {
+                writeQrString(
+                    output,
+                    teacher.name
+                )
+            }
+
+            require(locations.size <= 65535)
+            output.writeShort(locations.size)
+
+            for (location in locations) {
+                writeQrString(
+                    output,
+                    location.name
+                )
+            }
+
+            for (day in days.take(DAYS_PER_WEEK)) {
+
+                output.writeBoolean(
+                    day.enabled
+                )
+
+                val entries =
+                    day.entries.sortedBy {
+                        it.startMinute
+                    }
+
+                require(entries.size <= 65535)
+
+                output.writeShort(
+                    entries.size
+                )
+
+                for (entry in entries) {
+
+                    output.writeByte(
+                        when (entry.type) {
+                            SubjectType.CLASS ->
+                                QR_CLASS
+
+                            SubjectType.BREAK ->
+                                QR_BREAK
+                        }
+                    )
+
+                    require(
+                        entry.startMinute in 0..1439
+                    )
+
+                    require(
+                        entry.endMinute in 1..1440
+                    )
+
+                    output.writeShort(
+                        entry.startMinute
+                    )
+
+                    output.writeShort(
+                        entry.endMinute
+                    )
+
+                    output.writeLong(
+                        entry.color
+                    )
+
+                    when (entry.type) {
+
+                        SubjectType.CLASS -> {
+
+                            val subjectIndex =
+                                subjects.indexOfFirst {
+                                    it.id ==
+                                            entry.subjectId
+                                }
+
+                            require(
+                                subjectIndex >= 0
+                            ) {
+                                "La materia de una entrada HZ3 no existe"
+                            }
+
+                            output.writeShort(
+                                subjectIndex
+                            )
+
+                            val teacherIndex =
+                                teachers.indexOfFirst {
+                                    it.id ==
+                                            entry.teacherId
+                                }
+
+                            output.writeShort(
+                                if (
+                                    teacherIndex >= 0
+                                ) {
+                                    teacherIndex
+                                } else {
+                                    QR_NULL_INDEX
+                                }
+                            )
+
+                            val locationIndex =
+                                locations.indexOfFirst {
+                                    it.id ==
+                                            entry.locationId
+                                }
+
+                            output.writeShort(
+                                if (
+                                    locationIndex >= 0
+                                ) {
+                                    locationIndex
+                                } else {
+                                    QR_NULL_INDEX
+                                }
+                            )
+                        }
+
+                        SubjectType.BREAK -> {
+                            writeQrString(
+                                output,
+                                entry.name
+                                    ?: "Recreo"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val bytes =
+            payload.toByteArray()
+
+        val crc =
+            CRC32().apply {
+                update(bytes)
+            }
+
+        val result =
+            ByteArrayOutputStream()
+
+        DataOutputStream(result).use { output ->
+            output.write(bytes)
+            output.writeInt(
+                crc.value.toInt()
+            )
+        }
+
+        return result.toByteArray()
+    }
+
+    private fun writeQrString(
+        output: DataOutputStream,
+        value: String
+    ) {
+        val bytes =
+            value.toByteArray(
+                Charsets.UTF_8
+            )
+
+        require(
+            bytes.size <= 65535
+        ) {
+            "Texto HZ3 demasiado largo"
+        }
+
+        output.writeShort(
+            bytes.size
+        )
+
+        output.write(bytes)
     }
 
     fun findSubject(

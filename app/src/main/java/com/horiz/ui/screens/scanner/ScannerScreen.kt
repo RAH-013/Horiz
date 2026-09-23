@@ -93,7 +93,10 @@ fun ScannerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val storage = remember { ScheduleStorage(context) }
+    val storage = remember {
+        ScheduleStorage(context)
+    }
+
     var barcodeViewInstance by remember {
         mutableStateOf<BarcodeView?>(null)
     }
@@ -107,9 +110,17 @@ fun ScannerScreen(
         )
     }
 
-    var isFinished by remember { mutableStateOf(false) }
-    var isProcessing by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isFinished by remember {
+        mutableStateOf(false)
+    }
+
+    var isProcessing by remember {
+        mutableStateOf(false)
+    }
+
+    var errorMessage by remember {
+        mutableStateOf<String?>(null)
+    }
 
     val infiniteTransition =
         rememberInfiniteTransition(
@@ -307,10 +318,13 @@ fun ScannerScreen(
                         )
 
                         val boxSize = 260.dp.toPx()
+
                         val topLeftX =
                             (size.width - boxSize) / 2
+
                         val topLeftY =
                             (size.height - boxSize) / 2
+
                         val cornerRadius = 24.dp.toPx()
 
                         drawRoundRect(
@@ -375,7 +389,8 @@ fun ScannerScreen(
                                     ?: "Se requiere acceso a la cámara para escanear el código QR.",
                             style =
                                 MaterialTheme.typography.bodyLarge,
-                            textAlign = TextAlign.Center
+                            textAlign =
+                                TextAlign.Center
                         )
 
                         Spacer(
@@ -565,11 +580,8 @@ private fun handleImportedSchedule(
     }
 
     try {
-        val decompressed =
-            ShareSchedule.decompress(qrText)
-
         var schedule =
-            Schedule.parse(decompressed)
+            ShareSchedule.decodeSchedule(qrText)
 
         val existingNames =
             storage
@@ -591,6 +603,7 @@ private fun handleImportedSchedule(
         storage.createSchedule(schedule)
 
         onSuccess()
+
     } catch (_: Exception) {
         onError(
             "El código QR no contiene un horario HZ3 válido."
@@ -603,7 +616,6 @@ private fun vibrateDevice(
 ) {
     val vibrator =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-
             val manager =
                 context.getSystemService(
                     Context.VIBRATOR_MANAGER_SERVICE
