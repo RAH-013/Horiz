@@ -4,9 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -65,11 +63,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 data class PresetCategory(
     val name: String,
@@ -187,22 +187,22 @@ fun ColorPickerDialog(
 ) {
     val context = LocalContext.current
 
-    val initialColor = Color(initial or 0xFF000000L)
+    val initialColor = remember(initial) { Color(initial or 0xFF000000L) }
     val initialHsv = remember(initial) { colorToHsv(initialColor) }
 
-    var hue by remember { mutableFloatStateOf(initialHsv[0]) }
-    var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
-    var value by remember { mutableFloatStateOf(initialHsv[2]) }
+    var hue by remember(initial) { mutableFloatStateOf(initialHsv[0]) }
+    var saturation by remember(initial) { mutableFloatStateOf(initialHsv[1]) }
+    var value by remember(initial) { mutableFloatStateOf(initialHsv[2]) }
 
     val currentColor = remember(hue, saturation, value) {
         hsvToColor(hue, saturation, value)
     }
 
-    val red = (currentColor.red * 255).toInt()
-    val green = (currentColor.green * 255).toInt()
-    val blue = (currentColor.blue * 255).toInt()
+    val red = remember(currentColor) { (currentColor.red * 255f).roundToInt().coerceIn(0, 255) }
+    val green = remember(currentColor) { (currentColor.green * 255f).roundToInt().coerceIn(0, 255) }
+    val blue = remember(currentColor) { (currentColor.blue * 255f).roundToInt().coerceIn(0, 255) }
 
-    var hexText by remember {
+    var hexText by remember(initial) {
         mutableStateOf(String.format("#%02X%02X%02X", red, green, blue))
     }
 
@@ -213,6 +213,13 @@ fun ColorPickerDialog(
         if (hexText.uppercase() != formatted) {
             hexText = formatted
         }
+    }
+
+    LaunchedEffect(initial) {
+        val hsv = colorToHsv(Color(initial or 0xFF000000L))
+        hue = hsv[0]
+        saturation = hsv[1]
+        value = hsv[2]
     }
 
     val themeBackground = MaterialTheme.colorScheme.surface
@@ -227,23 +234,37 @@ fun ColorPickerDialog(
         containerColor = themeBackground,
         shape = RoundedCornerShape(28.dp),
         title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Palette,
-                    contentDescription = null,
-                    tint = themeAccent
-                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Palette,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Text(
-                    text = "SELECTOR DE COLOR",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp
+                    text = "Selector de color",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold
                     ),
-                    color = themeOnSurface
+                    color = themeOnSurface,
+                    textAlign = TextAlign.Center
                 )
             }
         },
@@ -393,10 +414,11 @@ fun ColorPickerDialog(
                     ) {
                         currentCategory.colors.forEach { colorLong ->
                             val presetColor = Color(colorLong or 0xFF000000L)
-                            val isSelected = (red == (presetColor.red * 255).toInt()) &&
-                                    (green == (presetColor.green * 255).toInt()) &&
-                                    (blue == (presetColor.blue * 255).toInt())
+                            val presetRed = (presetColor.red * 255f).roundToInt()
+                            val presetGreen = (presetColor.green * 255f).roundToInt()
+                            val presetBlue = (presetColor.blue * 255f).roundToInt()
 
+                            val isSelected = (red == presetRed) && (green == presetGreen) && (blue == presetBlue)
                             val contentColor = if (presetColor.luminance() > 0.5f) Color.Black else Color.White
 
                             Box(
@@ -417,11 +439,7 @@ fun ColorPickerDialog(
                                         value = hsv[2]
                                     }
                             ) {
-                                AnimatedVisibility(
-                                    visible = isSelected,
-                                    enter = fadeIn(),
-                                    exit = fadeOut()
-                                ) {
+                                if (isSelected) {
                                     Icon(
                                         imageVector = Icons.Outlined.Check,
                                         contentDescription = null,
@@ -438,19 +456,20 @@ fun ColorPickerDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val finalColorLong = (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
-                    onColorSelected(finalColorLong.toLong() and 0xFFFFFFFFL)
+                    val finalColorLong = (0xFFL shl 24) or
+                            ((red.toLong() and 0xFFL) shl 16) or
+                            ((green.toLong() and 0xFFL) shl 8) or
+                            (blue.toLong() and 0xFFL)
+                    onColorSelected(finalColorLong)
                 },
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = themeAccent,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(12.dp)
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
             ) {
                 Text(
-                    text = "APLICAR",
+                    text = "Aplicar",
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
                 )
@@ -465,10 +484,8 @@ fun ColorPickerDialog(
                 )
             ) {
                 Text(
-                    text = "CANCELAR",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontFamily = FontFamily.Monospace
-                    )
+                    text = "Cancelar",
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }

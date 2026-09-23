@@ -30,8 +30,8 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -53,10 +53,10 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,9 +70,10 @@ import com.horiz.data.model.Schedule
 import com.horiz.data.model.ScheduleEntry
 import com.horiz.data.model.SubjectType
 import com.horiz.storage.ScheduleStorage
-import kotlinx.coroutines.CoroutineScope
+import com.horiz.widget.updateHorizWidgets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +85,7 @@ fun SubjectDialog(
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val dayNode = schedule.days.getOrNull(dayIndex)
 
     if (dayNode == null) {
@@ -98,76 +100,38 @@ fun SubjectDialog(
     val currentLocation = entry?.locationId?.let { schedule.findLocation(it) }
 
     val lastEnd = remember(dayIndex, entry?.id) {
-        entry?.endMinute
-            ?: (dayNode.entries.maxOfOrNull { it.endMinute } ?: (8 * 60))
+        entry?.endMinute ?: (dayNode.entries.maxOfOrNull { it.endMinute } ?: (8 * 60))
     }
 
     val initialStart = remember(dayIndex, entry?.id) {
-        entry?.startMinute ?: lastEnd
+        (entry?.startMinute ?: lastEnd).coerceIn(0, 1439)
     }
 
     val initialEnd = remember(dayIndex, entry?.id) {
-        entry?.endMinute
-            ?: (initialStart + 120).coerceAtMost(1440)
+        (entry?.endMinute ?: (initialStart + 120)).coerceIn(1, 1440)
     }
 
-    var name by remember(entry?.id) {
-        mutableStateOf(currentSubject?.name ?: "")
-    }
-
+    var name by remember(entry?.id) { mutableStateOf(currentSubject?.name ?: "") }
     var breakName by remember(entry?.id) {
-        mutableStateOf(
-            if (entry?.type == SubjectType.BREAK) {
-                entry.name ?: ""
-            } else {
-                ""
-            }
-        )
+        mutableStateOf(if (entry?.type == SubjectType.BREAK) entry.name ?: "" else "")
     }
+    var teacher by remember(entry?.id) { mutableStateOf(currentTeacher?.name ?: "") }
+    var room by remember(entry?.id) { mutableStateOf(currentLocation?.name ?: "") }
 
-    var teacher by remember(entry?.id) {
-        mutableStateOf(currentTeacher?.name ?: "")
-    }
-
-    var room by remember(entry?.id) {
-        mutableStateOf(currentLocation?.name ?: "")
-    }
-
-    var startTime by remember(entry?.id) {
-        mutableStateOf(formatMinute(initialStart.coerceIn(0, 1439)))
-    }
-
-    var endTime by remember(entry?.id) {
-        mutableStateOf(formatMinute(initialEnd.coerceIn(1, 1440)))
-    }
+    var startTime by remember(entry?.id) { mutableStateOf(formatMinute(initialStart)) }
+    var endTime by remember(entry?.id) { mutableStateOf(formatMinute(initialEnd)) }
 
     var color by remember(entry?.id) {
-        mutableStateOf(
-            currentSubject?.color
-                ?: entry?.color
-                ?: randColor()
-        )
+        mutableStateOf(currentSubject?.color ?: entry?.color ?: randColor())
     }
 
-    var type by remember(entry?.id) {
-        mutableStateOf(entry?.type ?: SubjectType.CLASS)
-    }
+    var type by remember(entry?.id) { mutableStateOf(entry?.type ?: SubjectType.CLASS) }
 
     var showColorPicker by remember { mutableStateOf(false) }
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
 
     var error by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(Unit) {
-        if (initialStart >= 1440) {
-            startTime = "23:59"
-        }
-
-        if (initialEnd <= 0) {
-            endTime = "00:01"
-        }
-    }
 
     ModalBottomSheet(
         onDismissRequest = onClose,
@@ -202,9 +166,7 @@ fun SubjectDialog(
 
                     Text(
                         text = if (entry == null) "Agregar Horario" else "Editar Horario",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold
-                        )
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 }
 
@@ -217,9 +179,7 @@ fun SubjectDialog(
                 }
             }
 
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = "Tipo de Bloque",
                     style = MaterialTheme.typography.labelMedium,
@@ -478,11 +438,7 @@ fun SubjectDialog(
                         }
 
                         if (!isValidSubjectText(trimmedName)) {
-                            Toast.makeText(
-                                context,
-                                "No uses espacios múltiples o bordes",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "No uses espacios múltiples o bordes", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
 
@@ -492,20 +448,12 @@ fun SubjectDialog(
                         }
 
                         if (!isValidSubjectText(trimmedTeacher) || !isValidSubjectText(trimmedRoom)) {
-                            Toast.makeText(
-                                context,
-                                "Verifica el formato del texto ingresado",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "Verifica el formato del texto ingresado", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                     } else {
                         if (!isValidSubjectText(trimmedBreakName)) {
-                            Toast.makeText(
-                                context,
-                                "Verifica el formato del texto ingresado",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "Verifica el formato del texto ingresado", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                     }
@@ -514,30 +462,17 @@ fun SubjectDialog(
                     val end = parseTime(endTime)
 
                     if (start == null || end == null) {
-                        Toast.makeText(
-                            context,
-                            "Hora inválida",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(context, "Hora inválida", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
 
                     if (start >= end) {
-                        Toast.makeText(
-                            context,
-                            "Rango de hora inválido",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(context, "Rango de hora inválido", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
 
                     if (dayNode.hasConflict(startMinute = start, endMinute = end, ignoredEntryId = entry?.id)) {
-                        Toast.makeText(
-                            context,
-                            "Existe un conflicto de horario",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
+                        Toast.makeText(context, "Existe un conflicto de horario", Toast.LENGTH_SHORT).show()
                         error = "El horario se cruza con otra materia"
                         return@Button
                     }
@@ -578,17 +513,16 @@ fun SubjectDialog(
                     }
 
                     if (!success) {
-                        Toast.makeText(
-                            context,
-                            "No se pudo guardar",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(context, "No se pudo guardar", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
 
-                    CoroutineScope(Dispatchers.IO).launch {
+                    scope.launch(Dispatchers.IO) {
                         storage.createSchedule(schedule)
-                        onClose()
+                        withContext(Dispatchers.Main) {
+                            updateHorizWidgets(context)
+                            onClose()
+                        }
                     }
                 },
                 shape = RoundedCornerShape(16.dp),
@@ -700,6 +634,8 @@ private fun ModernEntityField(
     onValueChange: (String) -> Unit,
     onSelect: (String) -> Unit
 ) {
+    var expanded by remember { mutableStateOf(false) }
+
     val filteredOptions = remember(value, options) {
         if (value.isBlank()) {
             emptyList()
@@ -710,11 +646,10 @@ private fun ModernEntityField(
         }
     }
 
-    var expanded by remember { mutableStateOf(false) }
-    val showDropdown = expanded && filteredOptions.isNotEmpty()
+    val isDropdownVisible = expanded && filteredOptions.isNotEmpty()
 
     ExposedDropdownMenuBox(
-        expanded = showDropdown,
+        expanded = isDropdownVisible,
         onExpandedChange = { expanded = it }
     ) {
         OutlinedTextField(
@@ -733,7 +668,7 @@ private fun ModernEntityField(
             },
             trailingIcon = {
                 if (filteredOptions.isNotEmpty()) {
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = showDropdown)
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = isDropdownVisible)
                 }
             },
             singleLine = true,
@@ -745,7 +680,7 @@ private fun ModernEntityField(
 
         if (filteredOptions.isNotEmpty()) {
             ExposedDropdownMenu(
-                expanded = showDropdown,
+                expanded = isDropdownVisible,
                 onDismissRequest = { expanded = false }
             ) {
                 filteredOptions.take(5).forEach { option ->
@@ -764,7 +699,6 @@ private fun ModernEntityField(
 
 private fun parseTime(value: String): Int? {
     val parts = value.split(":")
-
     if (parts.size != 2) return null
 
     val hour = parts[0].toIntOrNull() ?: return null

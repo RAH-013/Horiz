@@ -39,16 +39,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.horiz.data.model.Schedule
@@ -108,13 +101,12 @@ fun SubjectCard(
     val contentColor =
         MaterialTheme.colorScheme.onSurfaceVariant
 
-    // Estado reactivo para actualizar la hora actual dinámicamente cada minuto
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
     var currentDate by remember { mutableStateOf(LocalDate.now()) }
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(10_000) // Reevaluar cada 10 segundos
+            delay(10_000)
             currentTime = LocalTime.now()
             currentDate = LocalDate.now()
         }
@@ -122,10 +114,8 @@ fun SubjectCard(
 
     val currentMinute = currentTime.hour * 60 + currentTime.minute
 
-    // Obtener el día actual de la semana en formato 0..6 (Lunes = 0)
     val todayIndex = currentDate.dayOfWeek.value - 1
 
-    // Condición estricta: debe coincidir el día real con el día de la clase Y estar dentro del rango de tiempo
     val isClassActive = item.dayIndex == todayIndex && item.isNow(
         currentDayIndex = todayIndex,
         currentMinute = currentMinute
@@ -231,7 +221,6 @@ fun SubjectCard(
                         .weight(1f)
                         .padding(16.dp)
                 ) {
-                    // Fila superior: Punto de estado, Hora e Indicador de tareas al extremo derecho
                     Row(
                         verticalAlignment =
                             Alignment.CenterVertically,
@@ -270,9 +259,9 @@ fun SubjectCard(
                                 .size(8.dp)
                                 .background(
                                     if (isClassActive) {
-                                        Color(0xFF3CFF6B) // Verde sólo si es HOY y en la HORA
+                                        Color(0xFF3CFF6B)
                                     } else {
-                                        Color(0xFFFF3C3C) // Rojo de lo contrario
+                                        Color(0xFFFF3C3C)
                                     },
                                     CircleShape
                                 )
@@ -293,7 +282,6 @@ fun SubjectCard(
                             fontSize = 16.sp
                         )
 
-                        // Indicador de tareas
                         if (
                             item.type ==
                             SubjectType.CLASS &&
@@ -485,79 +473,5 @@ private fun CircleActionButton(
             tint = bc,
             modifier = Modifier.size(20.dp)
         )
-    }
-}
-
-private class FoldedCornerShape(
-    private val cornerRadius: Dp,
-    private val foldSize: Dp
-) : Shape {
-
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density
-    ): Outline {
-        val radius = with(density) {
-            cornerRadius.toPx()
-        }
-
-        val fold = with(density) {
-            foldSize.toPx()
-        }
-
-        val path = Path().apply {
-            moveTo(radius, 0f)
-
-            lineTo(
-                size.width - fold,
-                0f
-            )
-
-            lineTo(
-                size.width,
-                fold
-            )
-
-            lineTo(
-                size.width,
-                size.height - radius
-            )
-
-            quadraticBezierTo(
-                size.width,
-                size.height,
-                size.width - radius,
-                size.height
-            )
-
-            lineTo(
-                radius,
-                size.height
-            )
-
-            quadraticBezierTo(
-                0f,
-                size.height,
-                0f,
-                size.height - radius
-            )
-
-            lineTo(
-                0f,
-                radius
-            )
-
-            quadraticBezierTo(
-                0f,
-                0f,
-                radius,
-                0f
-            )
-
-            close()
-        }
-
-        return Outline.Generic(path)
     }
 }

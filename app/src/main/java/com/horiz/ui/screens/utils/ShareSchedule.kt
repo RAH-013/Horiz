@@ -2,44 +2,96 @@ package com.horiz.utils
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.Color
-import android.util.Base64
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
-import com.horiz.R
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.horiz.data.model.Schedule
 import com.horiz.storage.ScheduleStorage
 import java.io.ByteArrayOutputStream
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
+import java.util.zip.Deflater
+import java.util.zip.Inflater
 
 object ShareSchedule {
 
-    private fun compress(text: String): ByteArray {
-        val output = ByteArrayOutputStream()
+    private const val CHARACTER_SET = "ISO-8859-1"
 
-        GZIPOutputStream(output).use {
-            it.write(text.toByteArray(Charsets.UTF_8))
-        }
+    private fun compress(text: String): String {
+        val input = text.toByteArray(Charsets.UTF_8)
 
-        return output.toByteArray()
-    }
-
-    fun decompress(base64: String): String {
-        val compressed = Base64.decode(
-            base64,
-            Base64.NO_WRAP
+        val deflater = Deflater(
+            Deflater.BEST_COMPRESSION,
+            true
         )
 
-        GZIPInputStream(
-            compressed.inputStream()
-        ).use { input ->
-            return input.bufferedReader(Charsets.UTF_8).use {
-                it.readText()
+        return try {
+            deflater.setInput(input)
+            deflater.finish()
+
+            val output = ByteArrayOutputStream(
+                input.size
+            )
+
+            val buffer = ByteArray(8192)
+
+            while (!deflater.finished()) {
+                val count = deflater.deflate(buffer)
+                output.write(buffer, 0, count)
             }
+
+            String(
+                output.toByteArray(),
+                Charsets.ISO_8859_1
+            )
+        } finally {
+            deflater.end()
+        }
+    }
+
+    fun decompress(data: String): String {
+        val compressed =
+            data.toByteArray(Charsets.ISO_8859_1)
+
+        val inflater = Inflater(true)
+
+        return try {
+            inflater.setInput(compressed)
+
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+
+            while (!inflater.finished()) {
+                val count =
+                    inflater.inflate(buffer)
+
+                if (count == 0) {
+                    if (inflater.needsInput()) {
+                        throw IllegalArgumentException(
+                            "Datos comprimidos incompletos"
+                        )
+                    }
+
+                    if (inflater.needsDictionary()) {
+                        throw IllegalArgumentException(
+                            "Diccionario de compresión no válido"
+                        )
+                    }
+                }
+
+                output.write(
+                    buffer,
+                    0,
+                    count
+                )
+            }
+
+            String(
+                output.toByteArray(),
+                Charsets.UTF_8
+            )
+        } finally {
+            inflater.end()
         }
     }
 
@@ -49,14 +101,15 @@ object ShareSchedule {
     ): String {
         return storage.getSchedule(schedule.name)
             ?.serialize()
-            ?: throw IllegalArgumentException("El horario no existe")
+            ?: throw IllegalArgumentException(
+                "El horario no existe"
+            )
     }
 
     fun createSingleQRCode(
         schedule: Schedule,
         storage: ScheduleStorage,
-        context: Context,
-        size: Int = 512
+        size: Int = 768
     ): Bitmap {
         val text = getScheduleText(
             schedule = schedule,
@@ -65,129 +118,10 @@ object ShareSchedule {
 
         val compressed = compress(text)
 
-        val base64 = Base64.encodeToString(
-            compressed,
-            Base64.NO_WRAP
-        )
-
-        val qrBitmap = generateQR(
-            content = base64,
+        return generateQR(
+            content = compressed,
             size = size
         )
-
-        val drawable = context.getDrawable(
-            R.mipmap.ic_launcher
-        ) ?: throw IllegalArgumentException(
-            "Icono no encontrado"
-        )
-
-        val logo = drawableToBitmap(drawable)
-
-        return addLogoToQRCode(
-            qrBitmap = qrBitmap,
-            logo = logo
-        )
-    }
-
-    private fun drawableToBitmap(
-        drawable: android.graphics.drawable.Drawable
-    ): Bitmap {
-        val width = drawable.intrinsicWidth
-            .takeIf { it > 0 }
-            ?: 1
-
-        val height = drawable.intrinsicHeight
-            .takeIf { it > 0 }
-            ?: 1
-
-        val bitmap = Bitmap.createBitmap(
-            width,
-            height,
-            Bitmap.Config.ARGB_8888
-        )
-
-        val canvas = Canvas(bitmap)
-
-        drawable.setBounds(
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        )
-
-        drawable.draw(canvas)
-
-        return bitmap
-    }
-
-    private fun addLogoToQRCode(
-        qrBitmap: Bitmap,
-        logo: Bitmap
-    ): Bitmap {
-        val combined = Bitmap.createBitmap(
-            qrBitmap.width,
-            qrBitmap.height,
-            Bitmap.Config.ARGB_8888
-        )
-
-        val canvas = Canvas(combined)
-
-        canvas.drawBitmap(
-            qrBitmap,
-            0f,
-            0f,
-            null
-        )
-
-        val scaleFactor = 0.1f
-
-        val logoWidth = (
-                qrBitmap.width * scaleFactor
-                ).toInt()
-
-        val logoHeight = (
-                qrBitmap.height * scaleFactor
-                ).toInt()
-
-        val resizedLogo = Bitmap.createScaledBitmap(
-            logo,
-            logoWidth,
-            logoHeight,
-            true
-        )
-
-        val left = (
-                qrBitmap.width - resizedLogo.width
-                ) / 2f
-
-        val top = (
-                qrBitmap.height - resizedLogo.height
-                ) / 2f
-
-        val padding = 8f
-
-        val paint = Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = Color.WHITE
-        }
-
-        canvas.drawRect(
-            left - padding,
-            top - padding,
-            left + resizedLogo.width + padding,
-            top + resizedLogo.height + padding,
-            paint
-        )
-
-        canvas.drawBitmap(
-            resizedLogo,
-            left,
-            top,
-            null
-        )
-
-        return combined
     }
 
     private fun generateQR(
@@ -195,8 +129,9 @@ object ShareSchedule {
         size: Int
     ): Bitmap {
         val hints = mapOf(
-            EncodeHintType.CHARACTER_SET to "UTF-8",
-            EncodeHintType.MARGIN to 1
+            EncodeHintType.CHARACTER_SET to CHARACTER_SET,
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+            EncodeHintType.MARGIN to 4
         )
 
         val bitMatrix = QRCodeWriter().encode(
@@ -207,26 +142,35 @@ object ShareSchedule {
             hints
         )
 
-        val bitmap = Bitmap.createBitmap(
-            size,
-            size,
-            Bitmap.Config.RGB_565
-        )
+        val pixels = IntArray(size * size)
 
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bitmap.setPixel(
-                    x,
-                    y,
+        for (y in 0 until size) {
+            val rowOffset = y * size
+
+            for (x in 0 until size) {
+                pixels[rowOffset + x] =
                     if (bitMatrix[x, y]) {
                         Color.BLACK
                     } else {
                         Color.WHITE
                     }
-                )
             }
         }
 
-        return bitmap
+        return Bitmap.createBitmap(
+            size,
+            size,
+            Bitmap.Config.ARGB_8888
+        ).apply {
+            setPixels(
+                pixels,
+                0,
+                size,
+                0,
+                0,
+                size,
+                size
+            )
+        }
     }
 }

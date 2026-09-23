@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -18,8 +19,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -31,6 +35,7 @@ fun SettingsContent(
     paddingValues: PaddingValues,
     theme: AppTheme,
     baseColor: BaseColor,
+    canApplyBaseColor: Boolean,
     isClassesReminderEnabled: Boolean,
     isTasksReminderEnabled: Boolean,
     tasksReminderDays: Int,
@@ -38,11 +43,13 @@ fun SettingsContent(
     wakeUpOffsetMinutes: Int,
     onThemeChange: (AppTheme) -> Unit,
     onBaseColorChange: (BaseColor) -> Unit,
+    onApplyBaseColor: () -> Unit,
     onClassesReminderChange: (Boolean) -> Unit,
     onTasksReminderChange: (Boolean) -> Unit,
     onTasksReminderDaysChange: (Int) -> Unit,
     onWakeUpAlarmChange: (Boolean) -> Unit,
-    onWakeUpOffsetChange: (Int) -> Unit
+    onWakeUpOffsetChange: (Int) -> Unit,
+    onResetPreferences: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -66,17 +73,36 @@ fun SettingsContent(
             title = "Personalización",
             icon = Icons.Rounded.ColorLens
         ) {
-            BaseColorSelector(
-                selected = baseColor,
-                onSelected = onBaseColorChange
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                BaseColorSelector(
+                    selected = baseColor,
+                    onSelected = onBaseColorChange
+                )
+
+                AnimatedVisibility(
+                    visible = canApplyBaseColor,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Button(
+                        onClick = onApplyBaseColor,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Aplicar")
+                    }
+                }
+            }
         }
 
         SettingsSection(
             title = "Notificaciones y alarmas",
             icon = Icons.Rounded.Notifications
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 SettingsSwitchOption(
                     title = "Recordatorio de materias",
                     description = "Recibe una notificación antes de cada materia.",
@@ -102,13 +128,19 @@ fun SettingsContent(
                 ) {
                     Column {
                         Spacer(modifier = Modifier.height(4.dp))
+
                         SettingsSliderOption(
                             title = "Días de anticipación",
                             description = "Anticipación para los recordatorios de tareas.",
                             value = tasksReminderDays,
                             valueRange = 1f..7f,
                             steps = 5,
-                            valueLabel = if (tasksReminderDays == 1) "1 día" else "$tasksReminderDays días",
+                            valueLabel =
+                                if (tasksReminderDays == 1) {
+                                    "1 día"
+                                } else {
+                                    "$tasksReminderDays días"
+                                },
                             onValueChange = onTasksReminderDaysChange
                         )
                     }
@@ -132,6 +164,7 @@ fun SettingsContent(
                 ) {
                     Column {
                         Spacer(modifier = Modifier.height(4.dp))
+
                         SettingsSliderOption(
                             title = "Anticipación del despertador",
                             description = "Tiempo antes de tu primera materia.",
@@ -144,6 +177,19 @@ fun SettingsContent(
                     }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onResetPreferences,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            )
+        ) {
+            Text("Restablecer preferencias")
         }
 
         Spacer(modifier = Modifier.height(16.dp))

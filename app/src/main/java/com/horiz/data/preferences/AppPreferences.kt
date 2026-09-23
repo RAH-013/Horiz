@@ -10,7 +10,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.horiz.ui.theme.AppTheme
 import com.horiz.ui.theme.BaseColor
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(
@@ -125,28 +124,6 @@ class AppPreferences(
 
         context.dataStore.edit { preferences ->
             preferences[Keys.WAKE_UP_OFFSET] = minutes
-        }
-    }
-
-    suspend fun saveActiveScheduleId(id: Long) {
-        require(id > 0)
-
-        context.dataStore.edit { preferences ->
-            preferences[Keys.ACTIVE_SCHEDULE_ID] = id
-        }
-    }
-
-    suspend fun getActiveScheduleId(): Long? {
-        return context.dataStore.data
-            .map { preferences ->
-                preferences[Keys.ACTIVE_SCHEDULE_ID]
-            }
-            .first()
-    }
-
-    suspend fun clearActiveScheduleId() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(Keys.ACTIVE_SCHEDULE_ID)
         }
     }
 }

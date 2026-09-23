@@ -94,7 +94,9 @@ fun ScannerScreen(
     val scope = rememberCoroutineScope()
 
     val storage = remember { ScheduleStorage(context) }
-    var barcodeViewInstance by remember { mutableStateOf<BarcodeView?>(null) }
+    var barcodeViewInstance by remember {
+        mutableStateOf<BarcodeView?>(null)
+    }
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -109,98 +111,126 @@ fun ScannerScreen(
     var isProcessing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Animación de pulso para el borde transparente/brillante
-    val infiniteTransition = rememberInfiniteTransition(label = "borderPulse")
+    val infiniteTransition =
+        rememberInfiniteTransition(
+            label = "borderPulse"
+        )
+
     val borderAlpha by infiniteTransition.animateFloat(
         initialValue = 0.3f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+            animation = tween(
+                durationMillis = 1000,
+                easing = FastOutSlowInEasing
+            ),
             repeatMode = RepeatMode.Reverse
         ),
         label = "alphaAnim"
     )
 
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasCameraPermission = isGranted
-        if (!isGranted) {
-            errorMessage = "Se requiere acceso a la cámara para escanear los códigos QR."
-        } else {
+    val cameraPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            hasCameraPermission = isGranted
+
+            if (!isGranted) {
+                errorMessage =
+                    "Se requiere acceso a la cámara para escanear los códigos QR."
+            } else {
+                errorMessage = null
+            }
+        }
+
+    val galleryLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
+
+            if (uri == null || isFinished) {
+                return@rememberLauncherForActivityResult
+            }
+
+            isProcessing = true
             errorMessage = null
-        }
-    }
 
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri == null || isFinished) return@rememberLauncherForActivityResult
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val bitmap =
+                        context.contentResolver
+                            .openInputStream(uri)
+                            ?.use {
+                                BitmapFactory.decodeStream(it)
+                            }
+                            ?: throw IllegalArgumentException(
+                                "No se pudo abrir la imagen."
+                            )
 
-        isProcessing = true
-        errorMessage = null
+                    val qrText =
+                        ScannerUtils.decodeQrFromBitmap(bitmap)
 
-        scope.launch(Dispatchers.IO) {
-            try {
-                val bitmap = context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it)
-                } ?: throw IllegalArgumentException("No se pudo abrir la imagen.")
-
-                val qrText = ScannerUtils.decodeQrFromBitmap(bitmap)
-
-                withContext(Dispatchers.Main) {
-                    handleImportedSchedule(
-                        qrText = qrText,
-                        storage = storage,
-                        onSuccess = {
-                            isFinished = true
-                            isProcessing = false
-                            vibrateDevice(context)
-                            onImported()
-                        },
-                        onError = { error ->
-                            isProcessing = false
-                            errorMessage = error
-                        }
-                    )
-                }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) {
-                    isProcessing = false
-                    errorMessage = "No se encontró ningún código QR válido en la imagen seleccionada."
-                }
-            }
-        }
-    }
-
-    val processCameraResult: (BarcodeResult?) -> Unit = { result ->
-        if (result != null && !isFinished && !isProcessing) {
-            if (result.barcodeFormat == BarcodeFormat.QR_CODE) {
-                isProcessing = true
-                barcodeViewInstance?.pause()
-
-                handleImportedSchedule(
-                    qrText = result.text,
-                    storage = storage,
-                    onSuccess = {
-                        isFinished = true
-                        isProcessing = false
-                        vibrateDevice(context)
-                        onImported()
-                    },
-                    onError = { error ->
-                        isProcessing = false
-                        errorMessage = error
-                        barcodeViewInstance?.resume()
+                    withContext(Dispatchers.Main) {
+                        handleImportedSchedule(
+                            qrText = qrText,
+                            storage = storage,
+                            onSuccess = {
+                                isFinished = true
+                                isProcessing = false
+                                vibrateDevice(context)
+                                onImported()
+                            },
+                            onError = { error ->
+                                isProcessing = false
+                                errorMessage = error
+                            }
+                        )
                     }
-                )
+                } catch (_: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isProcessing = false
+                        errorMessage =
+                            "No se encontró ningún código QR válido en la imagen seleccionada."
+                    }
+                }
             }
+        }
+
+    val processCameraResult:
+                (BarcodeResult?) -> Unit = { result ->
+
+        if (
+            result != null &&
+            !isFinished &&
+            !isProcessing &&
+            result.barcodeFormat == BarcodeFormat.QR_CODE
+        ) {
+            isProcessing = true
+            barcodeViewInstance?.pause()
+
+            handleImportedSchedule(
+                qrText = result.text,
+                storage = storage,
+                onSuccess = {
+                    isFinished = true
+                    isProcessing = false
+                    vibrateDevice(context)
+                    onImported()
+                },
+                onError = { error ->
+                    isProcessing = false
+                    errorMessage = error
+                    barcodeViewInstance?.resume()
+                }
+            )
         }
     }
 
     LaunchedEffect(hasCameraPermission) {
         if (!hasCameraPermission) {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            cameraPermissionLauncher.launch(
+                Manifest.permission.CAMERA
+            )
         }
     }
 
@@ -215,29 +245,48 @@ fun ScannerScreen(
         title = "Escanear horario",
         onBackClick = onBackClick
     ) { paddingValues ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
+
                 if (hasCameraPermission) {
-                    // Usamos BarcodeView limpio en lugar de DecoratedBarcodeView
+
                     AndroidView(
                         factory = { ctx ->
                             BarcodeView(ctx).apply {
-                                decoderFactory = DefaultDecoderFactory(listOf(BarcodeFormat.QR_CODE))
-                                decodeContinuous(object : BarcodeCallback {
-                                    override fun barcodeResult(result: BarcodeResult?) {
-                                        processCameraResult(result)
-                                    }
 
-                                    override fun possibleResultPoints(resultPoints: List<ResultPoint>) {}
-                                })
+                                decoderFactory =
+                                    DefaultDecoderFactory(
+                                        listOf(
+                                            BarcodeFormat.QR_CODE
+                                        )
+                                    )
+
+                                decodeContinuous(
+                                    object : BarcodeCallback {
+
+                                        override fun barcodeResult(
+                                            result: BarcodeResult?
+                                        ) {
+                                            processCameraResult(result)
+                                        }
+
+                                        override fun possibleResultPoints(
+                                            resultPoints: List<ResultPoint>
+                                        ) {
+                                        }
+                                    }
+                                )
+
                                 resume()
                                 barcodeViewInstance = this
                             }
@@ -245,62 +294,113 @@ fun ScannerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Overlay oscuro con recorte central
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .graphicsLayer {
+                                compositingStrategy =
+                                    CompositingStrategy.Offscreen
+                            }
                     ) {
-                        drawRect(Color.Black.copy(alpha = 0.5f))
+                        drawRect(
+                            Color.Black.copy(alpha = 0.5f)
+                        )
 
                         val boxSize = 260.dp.toPx()
-                        val topLeftX = (size.width - boxSize) / 2
-                        val topLeftY = (size.height - boxSize) / 2
+                        val topLeftX =
+                            (size.width - boxSize) / 2
+                        val topLeftY =
+                            (size.height - boxSize) / 2
                         val cornerRadius = 24.dp.toPx()
 
                         drawRoundRect(
                             color = Color.Transparent,
-                            topLeft = Offset(topLeftX, topLeftY),
-                            size = Size(boxSize, boxSize),
-                            cornerRadius = CornerRadius(cornerRadius, cornerRadius),
+                            topLeft = Offset(
+                                topLeftX,
+                                topLeftY
+                            ),
+                            size = Size(
+                                boxSize,
+                                boxSize
+                            ),
+                            cornerRadius = CornerRadius(
+                                cornerRadius,
+                                cornerRadius
+                            ),
                             blendMode = BlendMode.Clear
                         )
                     }
 
-                    // Marco exterior con pulso/parpadeo suave
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .size(260.dp)
                             .alpha(borderAlpha)
-                            .border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(24.dp))
+                            .border(
+                                3.dp,
+                                MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(24.dp)
+                            )
                     )
+
                 } else {
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally,
+                        verticalArrangement =
+                            Arrangement.Center
                     ) {
+
                         Icon(
-                            imageVector = Icons.Rounded.Warning,
+                            imageVector =
+                                Icons.Rounded.Warning,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.error
+                            tint =
+                                MaterialTheme.colorScheme.error
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(16.dp)
+                        )
+
                         Text(
-                            text = errorMessage ?: "Se requiere acceso a la cámara para escanear el código QR.",
-                            style = MaterialTheme.typography.bodyLarge,
+                            text =
+                                errorMessage
+                                    ?: "Se requiere acceso a la cámara para escanear el código QR.",
+                            style =
+                                MaterialTheme.typography.bodyLarge,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(24.dp)
+                        )
+
                         Button(
-                            onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }
+                            onClick = {
+                                cameraPermissionLauncher.launch(
+                                    Manifest.permission.CAMERA
+                                )
+                            }
                         ) {
-                            Icon(imageVector = Icons.Rounded.Cameraswitch, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector =
+                                    Icons.Rounded.Cameraswitch,
+                                contentDescription = null
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(8.dp)
+                            )
+
                             Text("Conceder Permiso")
                         }
                     }
@@ -309,69 +409,142 @@ fun ScannerScreen(
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                shape = RoundedCornerShape(
+                    topStart = 28.dp,
+                    topEnd = 28.dp
+                ),
                 tonalElevation = 8.dp
             ) {
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(
+                            horizontal = 24.dp,
+                            vertical = 20.dp
+                        ),
+                    horizontalAlignment =
+                        Alignment.CenterHorizontally
                 ) {
+
                     AnimatedVisibility(
-                        visible = errorMessage != null && hasCameraPermission,
+                        visible =
+                            errorMessage != null &&
+                                    hasCameraPermission,
                         enter = fadeIn(),
                         exit = fadeOut()
                     ) {
+
                         errorMessage?.let { errorText ->
+
                             Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer
-                                ),
+                                colors =
+                                    CardDefaults.cardColors(
+                                        containerColor =
+                                            MaterialTheme
+                                                .colorScheme
+                                                .errorContainer
+                                    ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 16.dp)
+                                    .padding(
+                                        bottom = 16.dp
+                                    )
                             ) {
+
                                 Text(
                                     text = errorText,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(12.dp),
-                                    textAlign = TextAlign.Center
+                                    color =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .onErrorContainer,
+                                    style =
+                                        MaterialTheme
+                                            .typography
+                                            .bodyMedium,
+                                    modifier =
+                                        Modifier.padding(12.dp),
+                                    textAlign =
+                                        TextAlign.Center
                                 )
                             }
                         }
                     }
 
                     if (isProcessing) {
+
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                            horizontalArrangement =
+                                Arrangement.Center,
+                            modifier =
+                                Modifier.padding(
+                                    bottom = 16.dp
+                                )
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                            Spacer(modifier = Modifier.width(12.dp))
+
+                            CircularProgressIndicator(
+                                modifier =
+                                    Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(12.dp)
+                            )
+
                             Text(
-                                text = "Procesando código QR...",
-                                style = MaterialTheme.typography.bodyMedium
+                                text =
+                                    "Procesando código QR...",
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .bodyMedium
                             )
                         }
+
                     } else {
+
                         Text(
-                            text = "Apunta la cámara al código QR de tu horario",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            text =
+                                "Apunta la cámara al código QR de tu horario",
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodySmall,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                            modifier =
+                                Modifier.padding(
+                                    bottom = 16.dp
+                                )
                         )
                     }
 
                     OutlinedButton(
-                        onClick = { galleryLauncher.launch("image/*") },
+                        onClick = {
+                            galleryLauncher.launch("image/*")
+                        },
                         enabled = !isProcessing,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier =
+                            Modifier.fillMaxWidth()
                     ) {
-                        Icon(imageVector = Icons.Rounded.Image, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Icon(
+                            imageVector =
+                                Icons.Rounded.Image,
+                            contentDescription = null
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.width(8.dp)
+                        )
+
                         Text("Seleccionar desde Galería")
                     }
                 }
@@ -392,44 +565,71 @@ private fun handleImportedSchedule(
     }
 
     try {
-        val decompressed = ShareSchedule.decompress(qrText)
-        var schedule = Schedule.parse(decompressed)
+        val decompressed =
+            ShareSchedule.decompress(qrText)
 
-        val schedulesList: List<*> = storage.getSchedules()
-        val existingNames = schedulesList.filterIsInstance<Schedule>().map { it.name }.toSet()
+        var schedule =
+            Schedule.parse(decompressed)
+
+        val existingNames =
+            storage
+                .getSchedules()
+                .toSet()
 
         val baseName = schedule.name
         var suffix = 1
 
         while (schedule.name in existingNames) {
-            schedule = schedule.copy(name = "$baseName ($suffix)")
+            schedule =
+                schedule.copy(
+                    name = "$baseName ($suffix)"
+                )
+
             suffix++
         }
 
         storage.createSchedule(schedule)
+
         onSuccess()
-    } catch (e: Exception) {
-        onError("El código QR no contiene un formato de horario válido.")
+    } catch (_: Exception) {
+        onError(
+            "El código QR no contiene un horario HZ3 válido."
+        )
     }
 }
 
-private fun vibrateDevice(context: Context) {
-    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-        manager.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    }
+private fun vibrateDevice(
+    context: Context
+) {
+    val vibrator =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+
+            val manager =
+                context.getSystemService(
+                    Context.VIBRATOR_MANAGER_SERVICE
+                ) as VibratorManager
+
+            manager.defaultVibrator
+
+        } else {
+
+            @Suppress("DEPRECATION")
+            context.getSystemService(
+                Context.VIBRATOR_SERVICE
+            ) as Vibrator
+        }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
         vibrator.vibrate(
             VibrationEffect.createOneShot(
                 120,
                 VibrationEffect.DEFAULT_AMPLITUDE
             )
         )
+
     } else {
+
         @Suppress("DEPRECATION")
         vibrator.vibrate(120)
     }

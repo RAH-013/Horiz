@@ -8,15 +8,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.horiz.data.model.Schedule
 import com.horiz.data.model.ScheduleEntry
@@ -31,6 +33,7 @@ fun TodayCurrentCard(
     onManageTasks: (() -> Unit)? = null
 ) {
     val isClass = entry.type == SubjectType.CLASS
+    val colorScheme = MaterialTheme.colorScheme
 
     val name = if (isClass) {
         entry.subjectId
@@ -43,43 +46,45 @@ fun TodayCurrentCard(
             ?: "Recreo"
     }
 
-    val color = Color(
-        if (isClass) {
-            entry.subjectId
-                ?.let { schedule.findSubject(it)?.color }
-                ?: entry.color
-        } else {
-            entry.color
-        }
-    )
-
     val elapsed = (currentMinute - entry.startMinute).coerceAtLeast(0)
-    val duration = entry.endMinute - entry.startMinute
+    val duration = (entry.endMinute - entry.startMinute).coerceAtLeast(1)
     val progress = (elapsed.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     val remaining = (entry.endMinute - currentMinute).coerceAtLeast(0)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = colorScheme.surfaceContainer
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 2.dp
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                text = name.uppercase(),
-                style = MaterialTheme.typography.headlineSmall
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = name.uppercase(),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colorScheme.onSurface
+                )
+            }
 
             Text(
                 text = "${formatMinute(entry.startMinute)} – ${formatMinute(entry.endMinute)}",
-                color = color
+                style = MaterialTheme.typography.bodyMedium,
+                color = colorScheme.onSurfaceVariant
             )
 
             if (isClass) {
@@ -89,7 +94,8 @@ fun TodayCurrentCard(
                     ?.let { teacher ->
                         Text(
                             text = teacher,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -99,41 +105,57 @@ fun TodayCurrentCard(
                     ?.let { location ->
                         Text(
                             text = location,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colorScheme.onSurfaceVariant
                         )
                     }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             LinearProgressIndicator(
-                progress = progress,
-                modifier = Modifier.fillMaxWidth(),
-                color = color
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(7.dp),
+                color = colorScheme.primary,
+                trackColor = colorScheme.surfaceContainerHighest,
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "Termina en",
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colorScheme.onSurfaceVariant
                 )
 
                 Text(
                     text = countdownText(remaining),
                     style = MaterialTheme.typography.titleMedium,
-                    color = color
+                    color = colorScheme.primary
                 )
             }
 
             if (isClass && onManageTasks != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+
                 Button(
                     onClick = onManageTasks,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colorScheme.primary,
+                        contentColor = colorScheme.onPrimary
+                    )
                 ) {
-                    Text(text = "Administrar Tareas")
+                    Text(
+                        text = "Administrar tareas"
+                    )
                 }
             }
         }
@@ -152,5 +174,8 @@ private fun countdownText(minutes: Int): String {
 }
 
 private fun formatMinute(minute: Int): String {
-    return "%02d:%02d".format(minute / 60, minute % 60)
+    return "%02d:%02d".format(
+        minute / 60,
+        minute % 60
+    )
 }

@@ -1,6 +1,8 @@
 package com.horiz.ui.screens.subjects
 
 import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,7 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -38,14 +42,20 @@ import com.horiz.ui.screens.subjects.components.DuplicateSubjectDialog
 import com.horiz.ui.screens.subjects.components.EmptyDayView
 import com.horiz.ui.screens.subjects.components.SubjectDialog
 import com.horiz.ui.screens.subjects.components.SubjectList
+import com.horiz.ui.screens.subjects.components.SubjectListSkeleton
 import com.horiz.ui.screens.tasks.TaskScreen
+import com.horiz.widget.updateHorizWidgets
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
 import java.util.Calendar
 
 @Composable
 fun SubjectScreen(
+    initialTaskSubjectId: String? = null,
+    onInitialTaskOpened: () -> Unit = {},
     onBackClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -80,51 +90,36 @@ fun SubjectScreen(
         (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) + 5) % 7
     }
 
-    var schedule by remember {
-        mutableStateOf<Schedule?>(null)
-    }
+    var isLoading by remember { mutableStateOf(true) }
+    var schedule by remember { mutableStateOf<Schedule?>(null) }
+    var editingEntry by remember { mutableStateOf<ScheduleEntry?>(null) }
+    var deletingEntry by remember { mutableStateOf<ScheduleEntry?>(null) }
+    var duplicatingEntry by remember { mutableStateOf<ScheduleEntry?>(null) }
+    var taskEntry by remember { mutableStateOf<ScheduleEntry?>(null) }
+    var showSubjectDialog by remember { mutableStateOf(false) }
+    var showActiveDaysDialog by remember { mutableStateOf(false) }
+    var hasAutoOpenedDialog by remember { mutableStateOf(false) }
+    var hasOpenedInitialTask by remember { mutableStateOf(false) }
 
-    var editingEntry by remember {
-        mutableStateOf<ScheduleEntry?>(null)
-    }
-
-    var deletingEntry by remember {
-        mutableStateOf<ScheduleEntry?>(null)
-    }
-
-    var duplicatingEntry by remember {
-        mutableStateOf<ScheduleEntry?>(null)
-    }
-
-    var taskEntry by remember {
-        mutableStateOf<ScheduleEntry?>(null)
-    }
-
-    var showSubjectDialog by remember {
-        mutableStateOf(false)
-    }
-
-    var showActiveDaysDialog by remember {
-        mutableStateOf(false)
-    }
-
-    var hasAutoOpenedDialog by remember {
-        mutableStateOf(false)
-    }
-
-    val reloadSchedule: () -> Unit = {
-        scope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                storage.getKing()?.let { king ->
-                    storage.getSchedule(king)
-                }
-            }
-
-            schedule = loaded
+    val currentDateTime by produceState(
+        initialValue = LocalDateTime.now()
+    ) {
+        while (true) {
+            value = LocalDateTime.now()
+            delay(10_000)
         }
     }
 
-    LaunchedEffect(Unit) {
+    val currentDate = currentDateTime.toLocalDate()
+    val currentTime = currentDateTime.toLocalTime()
+
+    suspend fun loadSchedule(
+        showLoader: Boolean
+    ) {
+        if (showLoader) {
+            isLoading = true
+        }
+
         val loadedSchedule = withContext(Dispatchers.IO) {
             storage.getKing()?.let { king ->
                 storage.getSchedule(king)
@@ -134,9 +129,7 @@ fun SubjectScreen(
         schedule = loadedSchedule
 
         val totalEntriesCount =
-            loadedSchedule?.days?.sumOf {
-                it.entries.size
-            } ?: 0
+            loadedSchedule?.days?.sumOf { it.entries.size } ?: 0
 
         if (
             loadedSchedule != null &&
@@ -146,25 +139,62 @@ fun SubjectScreen(
             hasAutoOpenedDialog = true
             showActiveDaysDialog = true
         }
+
+        if (showLoader) {
+            isLoading = false
+        }
+    }
+
+    fun reloadSchedule() {
+        scope.launch {
+            loadSchedule(showLoader = false)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadSchedule(showLoader = true)
     }
 
     val currentSchedule = schedule
 
+    LaunchedEffect(
+        initialTaskSubjectId,
+        currentSchedule
+    ) {
+        if (
+            initialTaskSubjectId != null &&
+            currentSchedule != null &&
+            taskEntry == null &&
+            !hasOpenedInitialTask
+        ) {
+            val entry =
+                currentSchedule.days
+                    .asSequence()
+                    .flatMap { day ->
+                        day.entries.asSequence()
+                    }
+                    .firstOrNull { scheduleEntry ->
+                        scheduleEntry.subjectId
+                            ?.toString() == initialTaskSubjectId
+                    }
+
+            if (entry != null) {
+                hasOpenedInitialTask = true
+                taskEntry = entry
+                onInitialTaskOpened()
+            }
+        }
+    }
+
     val activeDaysMap = remember(currentSchedule) {
         currentSchedule?.days
-            ?.mapIndexed { index, day ->
-                index to day
-            }
-            ?.filter {
-                it.second.enabled
-            }
+            ?.mapIndexed { index, day -> index to day }
+            ?.filter { it.second.enabled }
             ?: emptyList()
     }
 
     val activeDaysShort = remember(activeDaysMap) {
-        activeDaysMap.map {
-            daysShort[it.first]
-        }
+        activeDaysMap.map { daysShort[it.first] }
     }
 
     val pageCount = activeDaysMap.size
@@ -176,71 +206,37 @@ fun SubjectScreen(
         if (activeDaysMap.isEmpty()) {
             0
         } else {
-            val exactIndex = activeDaysMap.indexOfFirst {
-                it.first == todayIndex
-            }
+            val exactIndex =
+                activeDaysMap.indexOfFirst {
+                    it.first == todayIndex
+                }
 
             if (exactIndex != -1) {
                 exactIndex
             } else {
-                val nextIndex = activeDaysMap.indexOfFirst {
-                    it.first > todayIndex
-                }
+                val nextIndex =
+                    activeDaysMap.indexOfFirst {
+                        it.first > todayIndex
+                    }
 
                 if (nextIndex != -1) {
                     nextIndex
                 } else {
-                    activeDaysMap.indexOfLast {
-                        it.first < todayIndex
-                    }.coerceAtLeast(0)
+                    activeDaysMap
+                        .indexOfLast {
+                            it.first < todayIndex
+                        }
+                        .coerceAtLeast(0)
                 }
             }
         }
     }
 
-    val pagerState = rememberPagerState(
-        initialPage = initialPageIndex.coerceIn(
-            0,
-            (pageCount - 1).coerceAtLeast(0)
-        ),
-        pageCount = {
-            pageCount
-        }
-    )
-
-    LaunchedEffect(
-        activeDaysMap,
-        todayIndex
-    ) {
-        if (activeDaysMap.isNotEmpty()) {
-            val targetPage =
-                if (
-                    activeDaysMap.any {
-                        it.first == todayIndex
-                    }
-                ) {
-                    activeDaysMap.indexOfFirst {
-                        it.first == todayIndex
-                    }
-                } else {
-                    val nextPage =
-                        activeDaysMap.indexOfFirst {
-                            it.first > todayIndex
-                        }
-
-                    if (nextPage != -1) {
-                        nextPage
-                    } else {
-                        activeDaysMap.indexOfLast {
-                            it.first < todayIndex
-                        }.coerceAtLeast(0)
-                    }
-                }
-
-            if (pagerState.currentPage != targetPage) {
-                pagerState.scrollToPage(targetPage)
-            }
-        }
+    val pagerState = key(isLoading) {
+        rememberPagerState(
+            initialPage = initialPageIndex,
+            pageCount = { pageCount }
+        )
     }
 
     val safePageIndex =
@@ -262,14 +258,14 @@ fun SubjectScreen(
         currentDay?.entries ?: emptyList()
 
     AppScreen(
-        title = if (currentDay != null) {
+        title = if (currentDay != null && !isLoading) {
             "${daysFull[currentOriginalDayIndex]} (${entries.size})"
         } else {
             "Materias"
         },
         onBackClick = onBackClick,
         actions = {
-            currentSchedule?.let {
+            if (currentSchedule != null) {
                 IconButton(
                     onClick = {
                         showActiveDaysDialog = true
@@ -283,110 +279,129 @@ fun SubjectScreen(
             }
         }
     ) { paddingValues ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(top = paddingValues.calculateTopPadding())
         ) {
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                if (activeDaysMap.isNotEmpty()) {
-                    HorizontalPager(
-                        state = pagerState,
-                        key = { pageIndex ->
-                            (
-                                    activeDaysMap
-                                        .getOrNull(pageIndex)
-                                        ?.first
-                                        ?: pageIndex
-                                    ).toLong()
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    ) { pageIndex ->
-                        val dayForPage =
-                            activeDaysMap
-                                .getOrNull(pageIndex)
-                                ?.second
+                when {
+                    isLoading -> {
+                        SubjectListSkeleton()
+                    }
 
-                        val entriesForPage =
-                            dayForPage?.entries
-                                ?: emptyList()
+                    currentSchedule == null -> {
+                        EmptyDayView()
+                    }
 
-                        when {
-                            dayForPage == null -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("No hay horario activo")
+                    activeDaysMap.isNotEmpty() -> {
+                        HorizontalPager(
+                            state = pagerState,
+                            key = { pageIndex ->
+                                (
+                                        activeDaysMap
+                                            .getOrNull(pageIndex)
+                                            ?.first
+                                            ?: pageIndex
+                                        ).toLong()
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        ) { pageIndex ->
+
+                            val dayForPage =
+                                activeDaysMap
+                                    .getOrNull(pageIndex)
+                                    ?.second
+
+                            val entriesForPage =
+                                dayForPage?.entries ?: emptyList()
+
+                            when {
+                                dayForPage == null -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("No hay horario activo")
+                                    }
+                                }
+
+                                entriesForPage.isEmpty() -> {
+                                    EmptyDayView()
+                                }
+
+                                else -> {
+                                    SubjectList(
+                                        items = entriesForPage,
+                                        schedule = currentSchedule,
+                                        onEdit = {
+                                            editingEntry = it
+                                            showSubjectDialog = true
+                                        },
+                                        onDelete = {
+                                            deletingEntry = it
+                                        },
+                                        onDuplicate = {
+                                            duplicatingEntry = it
+                                        },
+                                        onClick = {
+                                            taskEntry = it
+                                        }
+                                    )
                                 }
                             }
+                        }
 
-                            entriesForPage.isEmpty() -> {
-                                EmptyDayView()
-                            }
-
-                            else -> {
-                                SubjectList(
-                                    items = entriesForPage,
-                                    schedule = currentSchedule!!,
-                                    onEdit = {
-                                        editingEntry = it
-                                        showSubjectDialog = true
-                                    },
-                                    onDelete = {
-                                        deletingEntry = it
-                                    },
-                                    onDuplicate = {
-                                        duplicatingEntry = it
-                                    },
-                                    onClick = {
-                                        taskEntry = it
-                                    }
-                                )
-                            }
+                        FloatingActionButton(
+                            onClick = {
+                                if (entries.size >= 10) {
+                                    Toast.makeText(
+                                        context,
+                                        "Se ha alcanzado la capacidad máxima de 10 materias",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    editingEntry = null
+                                    showSubjectDialog = true
+                                }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 16.dp),
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Agregar materia"
+                            )
                         }
                     }
 
-                    FloatingActionButton(
-                        onClick = {
-                            if (entries.size >= 10) {
-                                Toast.makeText(
-                                    context,
-                                    "Se ha alcanzado la capacidad máxima de 10 materias",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                editingEntry = null
-                                showSubjectDialog = true
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Agregar materia"
-                        )
+                    else -> {
+                        EmptyDayView()
                     }
-                } else {
-                    EmptyDayView()
                 }
             }
 
-            if (activeDaysShort.isNotEmpty()) {
+            if (!isLoading && activeDaysShort.isNotEmpty()) {
                 DaySelector(
                     days = activeDaysShort,
                     selected = safePageIndex,
                     onSelect = { page ->
                         scope.launch {
-                            pagerState.animateScrollToPage(page)
+                            pagerState.animateScrollToPage(
+                                page = page,
+                                animationSpec = tween(
+                                    durationMillis = 250,
+                                    easing = FastOutSlowInEasing
+                                )
+                            )
                         }
                     }
                 )
@@ -395,6 +410,7 @@ fun SubjectScreen(
     }
 
     currentSchedule?.let { nonNullSchedule ->
+
         if (showActiveDaysDialog) {
             ActiveDaysDialog(
                 schedule = nonNullSchedule,
@@ -402,8 +418,7 @@ fun SubjectScreen(
                 onConfirm = { updatedStates ->
                     updatedStates.forEachIndexed { index, isEnabled ->
                         val dayNode =
-                            nonNullSchedule.days
-                                .getOrNull(index)
+                            nonNullSchedule.days.getOrNull(index)
 
                         if (
                             dayNode != null &&
@@ -417,11 +432,10 @@ fun SubjectScreen(
 
                     scope.launch {
                         withContext(Dispatchers.IO) {
-                            storage.createSchedule(
-                                nonNullSchedule
-                            )
+                            storage.createSchedule(nonNullSchedule)
                         }
 
+                        updateHorizWidgets(context)
                         reloadSchedule()
                     }
                 },
@@ -451,13 +465,10 @@ fun SubjectScreen(
                 schedule = nonNullSchedule,
                 currentDayIndex = currentOriginalDayIndex,
                 daysNames = daysFull,
-                enabledDayIndexes = activeDaysMap.map {
-                    it.first
-                },
+                enabledDayIndexes = activeDaysMap.map { it.first },
                 onConfirm = { targetDayIndex ->
                     val targetDay =
-                        nonNullSchedule.days
-                            .getOrNull(targetDayIndex)
+                        nonNullSchedule.days.getOrNull(targetDayIndex)
 
                     if (targetDay != null) {
                         if (targetDay.entries.size >= 10) {
@@ -467,23 +478,19 @@ fun SubjectScreen(
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
-                            val clonedEntry =
-                                entryToDuplicate.copy(
-                                    id = System.currentTimeMillis(),
-                                    dayIndex = targetDayIndex
-                                )
-
-                            targetDay.entries.add(
-                                clonedEntry
+                            val clonedEntry = entryToDuplicate.copy(
+                                id = System.currentTimeMillis(),
+                                dayIndex = targetDayIndex
                             )
+
+                            targetDay.entries.add(clonedEntry)
 
                             scope.launch {
                                 withContext(Dispatchers.IO) {
-                                    storage.createSchedule(
-                                        nonNullSchedule
-                                    )
+                                    storage.createSchedule(nonNullSchedule)
                                 }
 
+                                updateHorizWidgets(context)
                                 reloadSchedule()
 
                                 Toast.makeText(
@@ -513,11 +520,10 @@ fun SubjectScreen(
 
                     scope.launch {
                         withContext(Dispatchers.IO) {
-                            storage.createSchedule(
-                                nonNullSchedule
-                            )
+                            storage.createSchedule(nonNullSchedule)
                         }
 
+                        updateHorizWidgets(context)
                         reloadSchedule()
                     }
                 },
@@ -528,15 +534,18 @@ fun SubjectScreen(
         }
 
         taskEntry?.let { entry ->
-            TaskScreen(
-                schedule = nonNullSchedule,
-                scheduleEntryId = entry.id,
-                storage = storage,
-                onDismiss = {
-                    taskEntry = null
-                    reloadSchedule()
-                }
-            )
+            entry.subjectId?.let { subjectId ->
+                TaskScreen(
+                    schedule = nonNullSchedule,
+                    subjectId = subjectId,
+                    storage = storage,
+                    onDismiss = {
+                        taskEntry = null
+                    }
+                )
+            } ?: run {
+                taskEntry = null
+            }
         }
     }
 }

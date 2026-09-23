@@ -13,17 +13,21 @@ class TestAlarmReceiver : BroadcastReceiver() {
         context: Context,
         intent: Intent
     ) {
+        val applicationContext =
+            context.applicationContext
+
         val pendingResult = goAsync()
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val notificationHelper =
-                    NotificationHelper(context)
+                    NotificationHelper(applicationContext)
 
                 when (intent.action) {
 
                     ACTION_STOP_ALARM -> {
-                        notificationHelper.cancelWakeUpNotification()
+                        notificationHelper
+                            .cancelWakeUpNotification()
                     }
 
                     ACTION_SNOOZE_ALARM -> {
@@ -37,22 +41,25 @@ class TestAlarmReceiver : BroadcastReceiver() {
                                 EXTRA_START_TIME
                             ) ?: "--:--"
 
-                        notificationHelper.cancelWakeUpNotification()
+                        notificationHelper
+                            .cancelWakeUpNotification()
 
-                        AppAlarmScheduler(context)
-                            .scheduleSnoozeAlarm(
-                                subjectName = subjectName,
-                                classTime = startTime
-                            )
+                        AppAlarmScheduler(
+                            applicationContext
+                        ).scheduleSnoozeAlarm(
+                            subjectName = subjectName,
+                            classTime = startTime
+                        )
                     }
 
                     else -> {
-                        when (
+                        val alarmType =
                             intent.getIntExtra(
                                 EXTRA_ALARM_TYPE,
                                 -1
                             )
-                        ) {
+
+                        when (alarmType) {
 
                             TYPE_REMINDER_CLASSES -> {
                                 val subjectName =
@@ -65,10 +72,26 @@ class TestAlarmReceiver : BroadcastReceiver() {
                                         EXTRA_START_TIME
                                     ) ?: return@launch
 
-                                notificationHelper.showClassReminder(
-                                    subjectName = subjectName,
-                                    startTime = startTime
-                                )
+                                notificationHelper
+                                    .showClassReminder(
+                                        subjectName = subjectName,
+                                        startTime = startTime
+                                    )
+
+                                val entryId =
+                                    intent.getLongExtra(
+                                        EXTRA_ENTRY_ID,
+                                        -1L
+                                    )
+
+                                if (entryId > 0L) {
+                                    AppAlarmScheduler(
+                                        applicationContext
+                                    ).rescheduleRecurringAlarm(
+                                        alarmType,
+                                        entryId
+                                    )
+                                }
                             }
 
                             TYPE_REMINDER_TASKS -> {
@@ -77,9 +100,10 @@ class TestAlarmReceiver : BroadcastReceiver() {
                                         EXTRA_TASK_TITLE
                                     ) ?: return@launch
 
-                                notificationHelper.showTaskReminder(
-                                    title = taskTitle
-                                )
+                                notificationHelper
+                                    .showTaskReminder(
+                                        title = taskTitle
+                                    )
                             }
 
                             TYPE_WAKEUP -> {
@@ -93,10 +117,26 @@ class TestAlarmReceiver : BroadcastReceiver() {
                                         EXTRA_START_TIME
                                     ) ?: "--:--"
 
-                                notificationHelper.showFullScreenAlarmTrigger(
-                                    subjectName = subjectName,
-                                    classTime = startTime
-                                )
+                                notificationHelper
+                                    .showFullScreenAlarmTrigger(
+                                        subjectName = subjectName,
+                                        classTime = startTime
+                                    )
+
+                                val entryId =
+                                    intent.getLongExtra(
+                                        EXTRA_ENTRY_ID,
+                                        -1L
+                                    )
+
+                                if (entryId > 0L) {
+                                    AppAlarmScheduler(
+                                        applicationContext
+                                    ).rescheduleRecurringAlarm(
+                                        alarmType,
+                                        entryId
+                                    )
+                                }
                             }
                         }
                     }
@@ -108,23 +148,12 @@ class TestAlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val EXTRA_ALARM_TYPE =
-            "ALARM_TYPE"
-
-        const val EXTRA_ENTRY_ID =
-            "ENTRY_ID"
-
-        const val EXTRA_TASK_ID =
-            "TASK_ID"
-
-        const val EXTRA_TASK_TITLE =
-            "TASK_TITLE"
-
-        const val EXTRA_SUBJECT_NAME =
-            "SUBJECT_NAME"
-
-        const val EXTRA_START_TIME =
-            "START_TIME"
+        const val EXTRA_ALARM_TYPE = "ALARM_TYPE"
+        const val EXTRA_ENTRY_ID = "ENTRY_ID"
+        const val EXTRA_TASK_ID = "TASK_ID"
+        const val EXTRA_TASK_TITLE = "TASK_TITLE"
+        const val EXTRA_SUBJECT_NAME = "SUBJECT_NAME"
+        const val EXTRA_START_TIME = "START_TIME"
 
         const val TYPE_REMINDER_CLASSES = 1
         const val TYPE_REMINDER_TASKS = 2

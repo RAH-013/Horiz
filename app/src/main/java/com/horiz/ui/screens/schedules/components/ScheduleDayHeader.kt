@@ -41,7 +41,6 @@ fun ScheduleDayHeader(
                 color = MaterialTheme.colorScheme.outlineVariant
             )
     ) {
-        // Esquina fija sobre la columna de horas
         Box(
             modifier = Modifier
                 .width(TIME_COLUMN_WIDTH.dp)
@@ -52,7 +51,6 @@ fun ScheduleDayHeader(
                 )
         )
 
-        // Fila de días enlazada al ScrollState compartido
         Row(
             modifier = Modifier
                 .weight(1f)

@@ -14,15 +14,17 @@ sealed class Routes(
     data object Scanner : Routes("scanner")
 
     data object Tasks : Routes(
-        "tasks/{scheduleName}/{scheduleEntryId}"
+        "tasks/{scheduleName}/{subjectName}"
     ) {
         fun createRoute(
             scheduleName: String,
-            scheduleEntryId: Long
+            subjectName: String
         ): String {
             return "tasks/${
                 android.net.Uri.encode(scheduleName)
-            }/$scheduleEntryId"
+            }/${
+                android.net.Uri.encode(subjectName)
+            }"
         }
     }
 

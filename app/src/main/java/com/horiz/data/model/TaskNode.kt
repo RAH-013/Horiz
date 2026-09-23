@@ -2,6 +2,12 @@ package com.horiz.data.model
 
 import java.time.LocalDateTime
 
+enum class TaskPriority(val colorHex: Long) {
+    LOW(0xFF4CAF50),
+    MEDIUM(0xFFFFC107),
+    HIGH(0xFFF44336)
+}
+
 data class TaskNode(
     val id: Long,
     val subjectId: Long,
@@ -9,7 +15,8 @@ data class TaskNode(
     var description: String = "",
     var dueAt: LocalDateTime? = null,
     var completed: Boolean = false,
-    var orderIndex: Int = 0
+    var orderIndex: Int = 0,
+    var priority: TaskPriority = TaskPriority.LOW
 ) {
     init {
         require(title.isNotBlank()) {

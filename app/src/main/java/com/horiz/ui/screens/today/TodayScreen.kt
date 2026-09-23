@@ -12,20 +12,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.horiz.data.model.Schedule
 import com.horiz.data.model.ScheduleEntry
 import com.horiz.data.model.SubjectType
 import com.horiz.data.model.TaskNode
+import com.horiz.storage.ScheduleStorage
 import com.horiz.ui.components.AppScreen
+import com.horiz.ui.screens.tasks.TaskScreen
 import com.horiz.ui.screens.today.components.TodayCurrentCard
 import com.horiz.ui.screens.today.components.TodayDayFinishedCard
 import com.horiz.ui.screens.today.components.TodayEmptyCard
@@ -36,73 +37,118 @@ import com.horiz.ui.screens.today.components.TodaySummaryCard
 import com.horiz.ui.screens.today.components.TodayTaskCard
 import com.horiz.ui.screens.today.components.toHorizIndex
 import java.time.LocalDateTime
-import kotlinx.coroutines.delay
 
 @Composable
 fun TodayScreen(
     schedule: Schedule,
     onBackClick: (() -> Unit)? = null,
     onTaskClick: ((TaskNode) -> Unit)? = null,
-    onEntryClick: ((ScheduleEntry) -> Unit)? = null,
-    onManageTasks: ((ScheduleEntry) -> Unit)? = null
+    onEntryClick: ((ScheduleEntry) -> Unit)? = null
 ) {
-    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = LocalDateTime.now()
-            delay(1000L)
-        }
+    val storage = remember {
+        ScheduleStorage(context)
     }
 
-    val today = remember(now) { now.toLocalDate() }
-    val currentMinute = remember(now) { now.hour * 60 + now.minute }
-    val dayIndex = remember(today) { today.dayOfWeek.toHorizIndex() }
-    val day = remember(schedule, dayIndex) { schedule.days.getOrNull(dayIndex) }
+    var taskEntry by remember {
+        mutableStateOf<ScheduleEntry?>(null)
+    }
+
+    var now by remember {
+        mutableStateOf(LocalDateTime.now())
+    }
+
+    val today = remember(now) {
+        now.toLocalDate()
+    }
+
+    val currentMinute = remember(now) {
+        now.hour * 60 + now.minute
+    }
+
+    val dayIndex = remember(today) {
+        today.dayOfWeek.toHorizIndex()
+    }
+
+    val day = remember(schedule, dayIndex) {
+        schedule.days.getOrNull(dayIndex)
+    }
 
     val isDayDisabled = day == null || !day.enabled
 
     val entries = remember(day) {
-        if (isDayDisabled) emptyList()
-        else day?.entries?.sortedBy { it.startMinute } ?: emptyList()
-    }
-
-    val currentEntry = remember(entries, currentMinute) {
-        entries.firstOrNull { currentMinute >= it.startMinute && currentMinute < it.endMinute }
-    }
-
-    val previousEntry = remember(entries, currentMinute) {
-        entries.lastOrNull { it.endMinute <= currentMinute }
-    }
-
-    val nextEntries = remember(entries, currentMinute) {
-        entries.filter { it.startMinute > currentMinute }
-    }
-
-    val nextEntry = remember(nextEntries) { nextEntries.firstOrNull() }
-    val previewEntries = remember(nextEntries) { nextEntries.drop(1) }
-
-    val firstEntry = remember(entries) { entries.firstOrNull() }
-    val lastEntry = remember(entries) { entries.lastOrNull() }
-
-    val beforeDay = remember(firstEntry, currentMinute) {
-        firstEntry != null && currentMinute < firstEntry.startMinute
-    }
-
-    val afterDay = remember(lastEntry, currentMinute) {
-        lastEntry != null && currentMinute >= lastEntry.endMinute
-    }
-
-    val todayTasks by remember(schedule.tasks, today) {
-        derivedStateOf {
-            schedule.tasks
-                .filter { it.dueAt?.toLocalDate() == today }
-                .sortedWith(compareBy<TaskNode> { it.completed }.thenBy { it.dueAt })
+        if (isDayDisabled) {
+            emptyList()
+        } else {
+            day?.entries
+                ?.sortedBy { it.startMinute }
+                ?: emptyList()
         }
     }
 
+    val currentEntry = remember(entries, currentMinute) {
+        entries.firstOrNull {
+            currentMinute >= it.startMinute &&
+                    currentMinute < it.endMinute
+        }
+    }
+
+    val previousEntry = remember(entries, currentMinute) {
+        entries.lastOrNull {
+            it.endMinute <= currentMinute
+        }
+    }
+
+    val nextEntries = remember(entries, currentMinute) {
+        entries.filter {
+            it.startMinute > currentMinute
+        }
+    }
+
+    val nextEntry = remember(nextEntries) {
+        nextEntries.firstOrNull()
+    }
+
+    val previewEntries = remember(nextEntries) {
+        nextEntries.drop(1)
+    }
+
+    val firstEntry = remember(entries) {
+        entries.firstOrNull()
+    }
+
+    val lastEntry = remember(entries) {
+        entries.lastOrNull()
+    }
+
+    val beforeDay = remember(firstEntry, currentMinute) {
+        firstEntry != null &&
+                currentMinute < firstEntry.startMinute
+    }
+
+    val afterDay = remember(lastEntry, currentMinute) {
+        lastEntry != null &&
+                currentMinute >= lastEntry.endMinute
+    }
+
+    val todayTasks =
+        schedule.tasks
+            .filter {
+                it.dueAt?.toLocalDate() == today
+            }
+            .sortedWith(
+                compareBy<TaskNode> {
+                    it.completed
+                }.thenBy {
+                    it.dueAt
+                }
+            )
+
     val pendingTasks = remember(todayTasks) {
-        todayTasks.count { !it.completed }
+        todayTasks.count {
+            !it.completed
+        }
     }
 
     AppScreen(
@@ -114,10 +160,12 @@ fun TodayScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(
+                horizontal = 16.dp,
+                vertical = 12.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-
             item {
                 TodayHeader(
                     date = today,
@@ -151,16 +199,22 @@ fun TodayScreen(
                 }
 
                 else -> {
-                    if (currentEntry != null && previousEntry != null) {
+                    if (
+                        currentEntry != null &&
+                        previousEntry != null
+                    ) {
                         item {
-                            SectionLabel(text = "ANTERIOR")
+                            SectionLabel("ANTERIOR")
                         }
+
                         item {
                             TodayEntryCard(
                                 entry = previousEntry,
                                 schedule = schedule,
                                 currentMinute = currentMinute,
-                                onClick = { onEntryClick?.invoke(previousEntry) }
+                                onClick = {
+                                    onEntryClick?.invoke(previousEntry)
+                                }
                             )
                         }
                     }
@@ -168,87 +222,134 @@ fun TodayScreen(
                     when {
                         beforeDay && firstEntry != null -> {
                             item {
-                                SectionLabel(text = "PRIMERA ACTIVIDAD DEL DÍA")
+                                SectionLabel(
+                                    "PRIMERA ACTIVIDAD DEL DÍA"
+                                )
                             }
+
                             item {
                                 TodayNextCard(
                                     entry = firstEntry,
                                     schedule = schedule,
                                     currentMinute = currentMinute,
-                                    onClick = { onEntryClick?.invoke(firstEntry) },
-                                    onManageTasks = if (firstEntry.type == SubjectType.CLASS) {
-                                        { onManageTasks?.invoke(firstEntry) }
-                                    } else null
+                                    onClick = {
+                                        onEntryClick?.invoke(firstEntry)
+                                    },
+                                    onManageTasks = if (
+                                        firstEntry.type == SubjectType.CLASS
+                                    ) {
+                                        {
+                                            taskEntry = firstEntry
+                                        }
+                                    } else {
+                                        null
+                                    }
                                 )
                             }
                         }
 
                         currentEntry != null -> {
                             item {
-                                SectionLabel(text = "AHORA")
+                                SectionLabel("AHORA")
                             }
+
                             item {
                                 TodayCurrentCard(
                                     entry = currentEntry,
                                     schedule = schedule,
                                     currentMinute = currentMinute,
-                                    onClick = { onEntryClick?.invoke(currentEntry) },
-                                    onManageTasks = if (currentEntry.type == SubjectType.CLASS) {
-                                        { onManageTasks?.invoke(currentEntry) }
-                                    } else null
+                                    onClick = {
+                                        onEntryClick?.invoke(currentEntry)
+                                    },
+                                    onManageTasks = if (
+                                        currentEntry.type == SubjectType.CLASS
+                                    ) {
+                                        {
+                                            taskEntry = currentEntry
+                                        }
+                                    } else {
+                                        null
+                                    }
                                 )
                             }
                         }
 
                         nextEntry != null -> {
                             item {
-                                SectionLabel(text = "SIGUIENTE ACTIVIDAD")
+                                SectionLabel(
+                                    "SIGUIENTE ACTIVIDAD"
+                                )
                             }
+
                             item {
                                 TodayNextCard(
                                     entry = nextEntry,
                                     schedule = schedule,
                                     currentMinute = currentMinute,
-                                    onClick = { onEntryClick?.invoke(nextEntry) },
-                                    onManageTasks = if (nextEntry.type == SubjectType.CLASS) {
-                                        { onManageTasks?.invoke(nextEntry) }
-                                    } else null
+                                    onClick = {
+                                        onEntryClick?.invoke(nextEntry)
+                                    },
+                                    onManageTasks = if (
+                                        nextEntry.type == SubjectType.CLASS
+                                    ) {
+                                        {
+                                            taskEntry = nextEntry
+                                        }
+                                    } else {
+                                        null
+                                    }
                                 )
                             }
                         }
                     }
 
-                    if (currentEntry != null && nextEntry != null) {
+                    if (
+                        currentEntry != null &&
+                        nextEntry != null
+                    ) {
                         item {
-                            SectionLabel(text = "A CONTINUACIÓN")
+                            SectionLabel("A CONTINUACIÓN")
                         }
+
                         item {
                             TodayNextCard(
                                 entry = nextEntry,
                                 schedule = schedule,
                                 currentMinute = currentMinute,
-                                onClick = { onEntryClick?.invoke(nextEntry) },
-                                onManageTasks = if (nextEntry.type == SubjectType.CLASS) {
-                                    { onManageTasks?.invoke(nextEntry) }
-                                } else null
+                                onClick = {
+                                    onEntryClick?.invoke(nextEntry)
+                                },
+                                onManageTasks = if (
+                                    nextEntry.type == SubjectType.CLASS
+                                ) {
+                                    {
+                                        taskEntry = nextEntry
+                                    }
+                                } else {
+                                    null
+                                }
                             )
                         }
                     }
 
                     if (previewEntries.isNotEmpty()) {
                         item {
-                            SectionLabel(text = "MÁS TARDE")
+                            SectionLabel("MÁS TARDE")
                         }
 
                         items(
                             items = previewEntries,
-                            key = { "preview_${it.id}" }
+                            key = {
+                                "preview_${it.id}"
+                            }
                         ) { entry ->
                             TodayEntryCard(
                                 entry = entry,
                                 schedule = schedule,
                                 currentMinute = currentMinute,
-                                onClick = { onEntryClick?.invoke(entry) }
+                                onClick = {
+                                    onEntryClick?.invoke(entry)
+                                }
                             )
                         }
                     }
@@ -263,13 +364,17 @@ fun TodayScreen(
 
                         items(
                             items = todayTasks,
-                            key = { "task_${it.id}" }
+                            key = {
+                                "task_${it.id}"
+                            }
                         ) { task ->
                             TodayTaskCard(
                                 task = task,
                                 schedule = schedule,
                                 now = now,
-                                onClick = { onTaskClick?.invoke(task) }
+                                onClick = {
+                                    onTaskClick?.invoke(task)
+                                }
                             )
                         }
                     }
@@ -286,8 +391,25 @@ fun TodayScreen(
             }
 
             item {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(
+                    modifier = Modifier.height(16.dp)
+                )
             }
+        }
+    }
+
+    taskEntry?.let { entry ->
+        entry.subjectId?.let { subjectId ->
+            TaskScreen(
+                schedule = schedule,
+                subjectId = subjectId,
+                storage = storage,
+                onDismiss = {
+                    taskEntry = null
+                }
+            )
+        } ?: run {
+            taskEntry = null
         }
     }
 }
@@ -301,7 +423,10 @@ private fun SectionLabel(
         text = text,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .padding(
+                horizontal = 4.dp,
+                vertical = 2.dp
+            ),
         style = if (isHeader) {
             MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.Bold,

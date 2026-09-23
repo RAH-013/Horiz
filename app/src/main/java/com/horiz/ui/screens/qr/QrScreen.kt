@@ -60,8 +60,7 @@ fun QrScreen(
 
                 ShareSchedule.createSingleQRCode(
                     schedule = schedule,
-                    storage = storage,
-                    context = context
+                    storage = storage
                 )
             }
         } catch (e: Exception) {

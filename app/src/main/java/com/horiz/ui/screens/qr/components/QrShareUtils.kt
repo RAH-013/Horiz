@@ -59,9 +59,7 @@ object QrShareUtils {
 
             putExtra(
                 Intent.EXTRA_TEXT,
-                "Estoy usando Horiz ⌚ para organizar mis horarios.\n" +
-                        "Te comparto mi horario \"$scheduleName\" " +
-                        "para que también lo uses. 📅✨"
+                "Te comparto mi horario \"$scheduleName\"."
             )
 
             addFlags(

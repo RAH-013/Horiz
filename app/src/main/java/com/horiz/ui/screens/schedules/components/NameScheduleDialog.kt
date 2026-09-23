@@ -59,7 +59,6 @@ fun NameScheduleDialog(
         }
     }
 
-    // Enfocar automáticamente el campo de texto al abrir el diálogo
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }

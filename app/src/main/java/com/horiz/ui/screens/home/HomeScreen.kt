@@ -2,7 +2,6 @@ package com.horiz.ui.screens.home
 
 import android.content.Intent
 import android.net.Uri
-import java.time.Year
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -43,11 +42,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.horiz.R
+import com.horiz.ui.theme.BaseColor
+import java.time.Year
 import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
 fun HomeScreen(
+    baseColor: BaseColor,
     onTodayClick: () -> Unit,
     onSubjectsClick: () -> Unit,
     onSchedulesClick: () -> Unit,
@@ -77,7 +79,16 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.icon),
+                    painter = painterResource(
+                        id = when (baseColor) {
+                            BaseColor.PURPLE -> R.drawable.icon_purple
+                            BaseColor.RED -> R.drawable.icon_red
+                            BaseColor.GREEN -> R.drawable.icon_green
+                            BaseColor.ORANGE -> R.drawable.icon_orange
+                            BaseColor.BLUE -> R.drawable.icon_blue
+                            BaseColor.PINK -> R.drawable.icon_pink
+                        }
+                    ),
                     contentDescription = null,
                     modifier = Modifier.size(140.dp)
                 )

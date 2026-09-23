@@ -4,108 +4,74 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import com.horiz.data.model.Schedule
 import com.horiz.data.model.ScheduleEntry
 import com.horiz.data.model.SubjectType
 import com.horiz.data.preferences.AppPreferences
 import com.horiz.storage.ScheduleStorage
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import java.time.DayOfWeek
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.flow.first
 
 class AppAlarmScheduler(
-    private val context: Context
+    context: Context
 ) {
+
+    private val context = context.applicationContext
+
     private val alarmManager =
-        context.getSystemService(
-            Context.ALARM_SERVICE
-        ) as AlarmManager
+        this.context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-    private val preferences =
-        AppPreferences(
-            context.applicationContext
+    private val preferences = AppPreferences(this.context)
+    private val storage = ScheduleStorage(this.context)
+    private val permissionHelper = AlarmPermissionHelper(this.context)
+
+    private val alarmPrefs =
+        this.context.getSharedPreferences(
+            ALARM_PREFS,
+            Context.MODE_PRIVATE
         )
 
-    private val storage =
-        ScheduleStorage(
-            context.applicationContext
-        )
+    fun scheduleAll() {
+        cancelRegisteredAlarms()
 
-    suspend fun scheduleAll() {
-        cancelAll()
+        if (!hasRequiredPermissions()) return
 
-        val scheduleName =
-            storage.getKing()
-                ?: return
-
-        val schedule =
-            storage.getSchedule(scheduleName)
-                ?: return
+        val schedule = getActiveSchedule() ?: return
 
         if (!schedule.enabled) return
 
-        scheduleClassReminders(schedule)
-        scheduleTaskReminders(schedule)
-        scheduleWakeUpAlarms(schedule)
+        scheduleClassRemindersInternal(schedule)
+        scheduleTaskRemindersInternal(schedule)
+        scheduleWakeUpAlarmsInternal(schedule)
     }
 
-    suspend fun scheduleClassReminders() {
-        cancelClassReminders()
+    fun scheduleTaskReminders() {
+        cancelRegisteredAlarms(TYPE_TASK)
 
-        val scheduleName =
-            storage.getKing()
-                ?: return
+        if (!hasRequiredPermissions()) return
 
-        val schedule =
-            storage.getSchedule(scheduleName)
-                ?: return
+        val schedule = getActiveSchedule() ?: return
 
         if (!schedule.enabled) return
 
-        scheduleClassReminders(schedule)
-    }
-
-    suspend fun scheduleTaskReminders() {
-        cancelTaskReminders()
-
-        val scheduleName =
-            storage.getKing()
-                ?: return
-
-        val schedule =
-            storage.getSchedule(scheduleName)
-                ?: return
-
-        if (!schedule.enabled) return
-
-        scheduleTaskReminders(schedule)
-    }
-
-    suspend fun scheduleWakeUpAlarms() {
-        cancelWakeUpAlarms()
-
-        val scheduleName =
-            storage.getKing()
-                ?: return
-
-        val schedule =
-            storage.getSchedule(scheduleName)
-                ?: return
-
-        if (!schedule.enabled) return
-
-        scheduleWakeUpAlarms(schedule)
+        scheduleTaskRemindersInternal(schedule)
     }
 
     fun scheduleSnoozeAlarm(
         subjectName: String,
         classTime: String
     ) {
-        if (!hasExactAlarmPermission()) return
+        if (!hasRequiredPermissions()) return
+
+        cancelSnoozeAlarm()
+
+        val triggerAt =
+            System.currentTimeMillis() + SNOOZE_DELAY_MILLIS
 
         val intent =
             Intent(
@@ -116,12 +82,10 @@ class AppAlarmScheduler(
                     TestAlarmReceiver.EXTRA_ALARM_TYPE,
                     TestAlarmReceiver.TYPE_WAKEUP
                 )
-
                 putExtra(
                     TestAlarmReceiver.EXTRA_SUBJECT_NAME,
                     subjectName
                 )
-
                 putExtra(
                     TestAlarmReceiver.EXTRA_START_TIME,
                     classTime
@@ -139,115 +103,177 @@ class AppAlarmScheduler(
 
         alarmManager.setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() +
-                    5 * 60 * 1000L,
+            triggerAt,
             pendingIntent
         )
     }
 
-    fun cancelAll() {
-        cancelClassReminders()
-        cancelTaskReminders()
-        cancelWakeUpAlarms()
-    }
-
-    fun cancelClassReminders() {
-        cancelType(
-            TestAlarmReceiver.TYPE_REMINDER_CLASSES
-        )
-    }
-
-    fun cancelTaskReminders() {
-        cancelType(
-            TestAlarmReceiver.TYPE_REMINDER_TASKS
-        )
-    }
-
-    fun cancelWakeUpAlarms() {
-        cancelType(
-            TestAlarmReceiver.TYPE_WAKEUP
-        )
-
-        cancelPendingIntent(
-            REQ_SNOOZE
-        )
-    }
-
-    private suspend fun scheduleClassReminders(
-        schedule: Schedule
+    fun rescheduleRecurringAlarm(
+        alarmType: Int,
+        entryId: Long
     ) {
-        if (
-            !preferences
-                .isClassesReminderEnabled
-                .first()
-        ) {
-            return
-        }
+        if (!hasRequiredPermissions()) return
 
-        if (!hasExactAlarmPermission()) {
-            return
-        }
+        val schedule = getActiveSchedule() ?: return
 
-        val now =
-            LocalDateTime.now()
+        if (!schedule.enabled) return
 
-        schedule.days.forEach { day ->
-            if (!day.enabled) {
-                return@forEach
+        val entry =
+            schedule.findEntry(entryId) ?: return
+
+        if (entry.type != SubjectType.CLASS) return
+
+        val now = LocalDateTime.now()
+
+        val classDateTime =
+            nextOccurrence(
+                entry.dayIndex,
+                entry.startMinute,
+                now
+            )
+
+        val triggerAt =
+            when (alarmType) {
+                TestAlarmReceiver.TYPE_REMINDER_CLASSES -> {
+                    var value =
+                        classDateTime.minusMinutes(
+                            CLASS_REMINDER_MINUTES
+                        )
+
+                    if (!value.isAfter(now)) {
+                        value = value.plusWeeks(1)
+                    }
+
+                    value
+                }
+
+                TestAlarmReceiver.TYPE_WAKEUP -> {
+                    val offset =
+                        runBlocking {
+                            preferences.wakeUpOffsetMinutes.first()
+                        }
+
+                    var value =
+                        classDateTime.minusMinutes(
+                            offset.toLong()
+                        )
+
+                    if (!value.isAfter(now)) {
+                        value = value.plusWeeks(1)
+                    }
+
+                    value
+                }
+
+                else -> return
             }
 
-            day.entries
-                .filter {
-                    it.type == SubjectType.CLASS &&
-                            it.subjectId != null
-                }
-                .forEach { entry ->
+        val subjectName =
+            getSubjectName(
+                schedule,
+                entry
+            ) ?: "Materia Desconocida"
 
-                    val classTime =
-                        nextOccurrence(
-                            entry.dayIndex,
-                            entry.startMinute,
-                            now
-                        )
+        val type =
+            when (alarmType) {
+                TestAlarmReceiver.TYPE_REMINDER_CLASSES ->
+                    TYPE_CLASS
 
-                    val reminderTime =
-                        classTime.minusMinutes(10)
+                TestAlarmReceiver.TYPE_WAKEUP ->
+                    TYPE_WAKEUP
 
-                    if (reminderTime.isAfter(now)) {
-                        scheduleEntryAlarm(
-                            entry = entry,
-                            triggerAt = reminderTime,
-                            alarmType =
-                                TestAlarmReceiver
-                                    .TYPE_REMINDER_CLASSES
-                        )
-                    }
-                }
-        }
+                else -> return
+            }
+
+        scheduleAlarm(
+            requestCode = requestCode(type, entry.id),
+            triggerAt = triggerAt,
+            alarmType = alarmType,
+            entryId = entry.id,
+            subjectName = subjectName,
+            startTime = formatTime(entry.startMinute)
+        )
     }
 
-    private suspend fun scheduleTaskReminders(
+    private fun scheduleClassRemindersInternal(
         schedule: Schedule
     ) {
-        if (
-            !preferences
-                .isTasksReminderEnabled
-                .first()
-        ) {
-            return
-        }
+        val enabled =
+            runBlocking {
+                preferences.isClassesReminderEnabled.first()
+            }
 
-        if (!hasExactAlarmPermission()) {
-            return
-        }
+        if (!enabled) return
+
+        val now = LocalDateTime.now()
+
+        schedule.days
+            .filter { it.enabled }
+            .forEach { day ->
+
+                day.entries
+                    .filter {
+                        it.type == SubjectType.CLASS &&
+                                it.subjectId != null
+                    }
+                    .forEach { entry ->
+
+                        val subjectName =
+                            getSubjectName(
+                                schedule,
+                                entry
+                            ) ?: return@forEach
+
+                        val classDateTime =
+                            nextOccurrence(
+                                day.index,
+                                entry.startMinute,
+                                now
+                            )
+
+                        val reminderAt =
+                            classDateTime.minusMinutes(
+                                CLASS_REMINDER_MINUTES
+                            )
+
+                        if (reminderAt.isAfter(now)) {
+                            scheduleAlarm(
+                                requestCode = requestCode(
+                                    TYPE_CLASS,
+                                    entry.id
+                                ),
+                                triggerAt = reminderAt,
+                                alarmType =
+                                    TestAlarmReceiver
+                                        .TYPE_REMINDER_CLASSES,
+                                entryId = entry.id,
+                                subjectName = subjectName,
+                                startTime =
+                                    formatTime(
+                                        entry.startMinute
+                                    )
+                            )
+                        }
+                    }
+            }
+    }
+
+    private fun scheduleTaskRemindersInternal(
+        schedule: Schedule
+    ) {
+        val enabled =
+            runBlocking {
+                preferences.isTasksReminderEnabled.first()
+            }
+
+        if (!enabled) return
 
         val daysBefore =
-            preferences
-                .tasksReminderDays
-                .first()
+            runBlocking {
+                preferences.tasksReminderDays.first()
+            }
 
-        val now =
-            LocalDateTime.now()
+        val now = LocalDateTime.now()
 
         schedule.tasks
             .filter {
@@ -257,120 +283,121 @@ class AppAlarmScheduler(
             .forEach { task ->
 
                 val dueAt =
-                    task.dueAt
-                        ?: return@forEach
+                    task.dueAt ?: return@forEach
 
                 val reminderAt =
                     dueAt.minusDays(
                         daysBefore.toLong()
                     )
 
-                val triggerAt =
-                    if (reminderAt.isAfter(now)) {
-                        reminderAt
-                    } else {
-                        now.plusSeconds(5)
-                    }
+                if (!reminderAt.isAfter(now)) {
+                    return@forEach
+                }
 
-                scheduleTaskAlarm(
-                    taskId = task.id,
-                    title = task.title,
-                    triggerAt = triggerAt
+                scheduleAlarm(
+                    requestCode = requestCode(
+                        TYPE_TASK,
+                        task.id
+                    ),
+                    triggerAt = reminderAt,
+                    alarmType =
+                        TestAlarmReceiver
+                            .TYPE_REMINDER_TASKS,
+                    taskTitle = task.title
                 )
             }
     }
 
-    private suspend fun scheduleWakeUpAlarms(
+    private fun scheduleWakeUpAlarmsInternal(
         schedule: Schedule
     ) {
-        if (
-            !preferences
-                .isWakeUpAlarmEnabled
-                .first()
-        ) {
-            return
-        }
+        val enabled =
+            runBlocking {
+                preferences.isWakeUpAlarmEnabled.first()
+            }
 
-        if (!hasExactAlarmPermission()) {
-            return
-        }
+        if (!enabled) return
 
         val offset =
-            preferences
-                .wakeUpOffsetMinutes
-                .first()
-
-        val now =
-            LocalDateTime.now()
-
-        schedule.days.forEach { day ->
-            if (!day.enabled) {
-                return@forEach
+            runBlocking {
+                preferences.wakeUpOffsetMinutes.first()
             }
 
-            val firstClass =
-                day.entries
-                    .filter {
-                        it.type == SubjectType.CLASS &&
-                                it.subjectId != null
-                    }
-                    .minByOrNull {
-                        it.startMinute
-                    }
-                    ?: return@forEach
+        val now = LocalDateTime.now()
 
-            val classOccurrence =
-                nextOccurrence(
-                    firstClass.dayIndex,
-                    firstClass.startMinute,
-                    now
-                )
+        schedule.days
+            .filter { it.enabled }
+            .forEach { day ->
 
-            var wakeUpTime =
-                classOccurrence.minusMinutes(
-                    offset.toLong()
-                )
+                val firstClass =
+                    day.entries
+                        .filter {
+                            it.type == SubjectType.CLASS &&
+                                    it.subjectId != null
+                        }
+                        .minByOrNull {
+                            it.startMinute
+                        }
+                        ?: return@forEach
 
-            if (!wakeUpTime.isAfter(now)) {
-                wakeUpTime =
-                    classOccurrence
-                        .plusWeeks(1)
-                        .minusMinutes(
-                            offset.toLong()
+                val classDateTime =
+                    nextOccurrence(
+                        day.index,
+                        firstClass.startMinute,
+                        now
+                    )
+
+                var alarmAt =
+                    classDateTime.minusMinutes(
+                        offset.toLong()
+                    )
+
+                if (!alarmAt.isAfter(now)) {
+                    alarmAt = alarmAt.plusWeeks(1)
+                }
+
+                val subjectName =
+                    getSubjectName(
+                        schedule,
+                        firstClass
+                    ) ?: "Materia Desconocida"
+
+                scheduleAlarm(
+                    requestCode = requestCode(
+                        TYPE_WAKEUP,
+                        firstClass.id
+                    ),
+                    triggerAt = alarmAt,
+                    alarmType =
+                        TestAlarmReceiver.TYPE_WAKEUP,
+                    entryId = firstClass.id,
+                    subjectName = subjectName,
+                    startTime =
+                        formatTime(
+                            firstClass.startMinute
                         )
-            }
-
-            val subjectName =
-                getSubjectName(firstClass)
-                    ?: return@forEach
-
-            val classTime =
-                formatTime(
-                    firstClass.startMinute
                 )
-
-            scheduleWakeUpAlarm(
-                entry = firstClass,
-                subjectName = subjectName,
-                classTime = classTime,
-                triggerAt = wakeUpTime
-            )
-        }
+            }
     }
 
-    private fun scheduleEntryAlarm(
-        entry: ScheduleEntry,
+    private fun scheduleAlarm(
+        requestCode: Int,
         triggerAt: LocalDateTime,
-        alarmType: Int
+        alarmType: Int,
+        entryId: Long? = null,
+        subjectName: String? = null,
+        startTime: String? = null,
+        taskTitle: String? = null
     ) {
-        val subjectName =
-            getSubjectName(entry)
-                ?: return
+        val triggerMillis =
+            triggerAt
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
 
-        val classTime =
-            formatTime(
-                entry.startMinute
-            )
+        if (triggerMillis <= System.currentTimeMillis()) {
+            return
+        }
 
         val intent =
             Intent(
@@ -382,115 +409,35 @@ class AppAlarmScheduler(
                     alarmType
                 )
 
-                putExtra(
-                    TestAlarmReceiver.EXTRA_ENTRY_ID,
-                    entry.id
-                )
+                entryId?.let {
+                    putExtra(
+                        TestAlarmReceiver.EXTRA_ENTRY_ID,
+                        it
+                    )
+                }
 
-                putExtra(
-                    TestAlarmReceiver.EXTRA_SUBJECT_NAME,
-                    subjectName
-                )
+                subjectName?.let {
+                    putExtra(
+                        TestAlarmReceiver.EXTRA_SUBJECT_NAME,
+                        it
+                    )
+                }
 
-                putExtra(
-                    TestAlarmReceiver.EXTRA_START_TIME,
-                    classTime
-                )
+                startTime?.let {
+                    putExtra(
+                        TestAlarmReceiver.EXTRA_START_TIME,
+                        it
+                    )
+                }
+
+                taskTitle?.let {
+                    putExtra(
+                        TestAlarmReceiver.EXTRA_TASK_TITLE,
+                        it
+                    )
+                }
             }
 
-        scheduleExact(
-            requestCode(
-                alarmType,
-                entry.id
-            ),
-            triggerAt,
-            intent
-        )
-    }
-
-    private fun scheduleWakeUpAlarm(
-        entry: ScheduleEntry,
-        subjectName: String,
-        classTime: String,
-        triggerAt: LocalDateTime
-    ) {
-        val intent =
-            Intent(
-                context,
-                TestAlarmReceiver::class.java
-            ).apply {
-                putExtra(
-                    TestAlarmReceiver.EXTRA_ALARM_TYPE,
-                    TestAlarmReceiver.TYPE_WAKEUP
-                )
-
-                putExtra(
-                    TestAlarmReceiver.EXTRA_ENTRY_ID,
-                    entry.id
-                )
-
-                putExtra(
-                    TestAlarmReceiver.EXTRA_SUBJECT_NAME,
-                    subjectName
-                )
-
-                putExtra(
-                    TestAlarmReceiver.EXTRA_START_TIME,
-                    classTime
-                )
-            }
-
-        scheduleExact(
-            requestCode(
-                TestAlarmReceiver.TYPE_WAKEUP,
-                entry.id
-            ),
-            triggerAt,
-            intent
-        )
-    }
-
-    private fun scheduleTaskAlarm(
-        taskId: Long,
-        title: String,
-        triggerAt: LocalDateTime
-    ) {
-        val intent =
-            Intent(
-                context,
-                TestAlarmReceiver::class.java
-            ).apply {
-                putExtra(
-                    TestAlarmReceiver.EXTRA_ALARM_TYPE,
-                    TestAlarmReceiver.TYPE_REMINDER_TASKS
-                )
-
-                putExtra(
-                    TestAlarmReceiver.EXTRA_TASK_ID,
-                    taskId
-                )
-
-                putExtra(
-                    TestAlarmReceiver.EXTRA_TASK_TITLE,
-                    title
-                )
-            }
-
-        scheduleExact(
-            requestCode(
-                TestAlarmReceiver.TYPE_REMINDER_TASKS,
-                taskId
-            ),
-            triggerAt,
-            intent
-        )
-    }
-
-    private fun scheduleExact(
-        requestCode: Int,
-        triggerAt: LocalDateTime,
-        intent: Intent
-    ) {
         val pendingIntent =
             PendingIntent.getBroadcast(
                 context,
@@ -500,83 +447,130 @@ class AppAlarmScheduler(
                         PendingIntent.FLAG_IMMUTABLE
             )
 
-        val triggerMillis =
-            triggerAt
-                .atZone(
-                    ZoneId.systemDefault()
-                )
-                .toInstant()
-                .toEpochMilli()
-
         alarmManager.setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
             triggerMillis,
             pendingIntent
         )
+
+        registerAlarm(
+            alarmType,
+            requestCode
+        )
     }
 
-    private fun cancelType(
-        type: Int
-    ) {
-        val scheduleName =
-            storage.getKing()
-                ?: return
+    private fun getActiveSchedule(): Schedule? {
+        val name = storage.getKing() ?: return null
+        return storage.getSchedule(name)
+    }
 
-        val schedule =
-            storage.getSchedule(scheduleName)
-                ?: return
+    private fun getSubjectName(
+        schedule: Schedule,
+        entry: ScheduleEntry
+    ): String? {
+        val subjectId = entry.subjectId ?: return null
+        return schedule.findSubject(subjectId)?.name
+    }
 
-        when (type) {
-            TestAlarmReceiver.TYPE_REMINDER_CLASSES -> {
-                schedule.days
-                    .flatMap {
-                        it.entries
-                    }
-                    .filter {
-                        it.type == SubjectType.CLASS
-                    }
-                    .forEach { entry ->
-                        cancelPendingIntent(
-                            requestCode(
-                                type,
-                                entry.id
-                            )
-                        )
-                    }
-            }
+    private fun nextOccurrence(
+        dayIndex: Int,
+        startMinute: Int,
+        now: LocalDateTime
+    ): LocalDateTime {
 
-            TestAlarmReceiver.TYPE_REMINDER_TASKS -> {
-                schedule.tasks.forEach { task ->
-                    cancelPendingIntent(
-                        requestCode(
-                            type,
-                            task.id
+        val targetDay = DayOfWeek.of(dayIndex + 1)
+
+        var date = now.toLocalDate()
+
+        repeat(8) {
+            if (date.dayOfWeek == targetDay) {
+                val candidate =
+                    LocalDateTime.of(
+                        date,
+                        LocalTime.of(
+                            startMinute / 60,
+                            startMinute % 60
                         )
                     )
+
+                if (candidate.isAfter(now)) {
+                    return candidate
                 }
             }
 
-            TestAlarmReceiver.TYPE_WAKEUP -> {
-                schedule.days
-                    .flatMap {
-                        it.entries
-                    }
-                    .filter {
-                        it.type == SubjectType.CLASS
-                    }
-                    .forEach { entry ->
-                        cancelPendingIntent(
-                            requestCode(
-                                type,
-                                entry.id
-                            )
-                        )
-                    }
-            }
+            date = date.plusDays(1)
         }
+
+        return LocalDateTime.of(
+            date,
+            LocalTime.of(
+                startMinute / 60,
+                startMinute % 60
+            )
+        )
     }
 
-    private fun cancelPendingIntent(
+    private fun formatTime(
+        startMinute: Int
+    ): String =
+        LocalTime.of(
+            startMinute / 60,
+            startMinute % 60
+        ).format(
+            DateTimeFormatter.ofPattern(
+                "hh:mm a"
+            )
+        )
+
+    private fun hasRequiredPermissions(): Boolean =
+        permissionHelper.hasNotificationPermission() &&
+                permissionHelper.hasExactAlarmPermission()
+
+    private fun registerAlarm(
+        type: Int,
+        requestCode: Int
+    ) {
+        val alarms =
+            getRegisteredAlarms().toMutableSet()
+
+        alarms.add(
+            encodeAlarm(
+                type,
+                requestCode
+            )
+        )
+
+        saveRegisteredAlarms(alarms)
+    }
+
+    private fun cancelRegisteredAlarms(
+        type: Int? = null
+    ) {
+        val alarms = getRegisteredAlarms()
+        val remaining = mutableSetOf<String>()
+
+        alarms.forEach { value ->
+
+            val alarm =
+                decodeAlarm(value)
+                    ?: return@forEach
+
+            if (
+                type == null ||
+                alarm.type == type
+            ) {
+                cancelRequestCode(
+                    alarm.requestCode
+                )
+            } else {
+                remaining.add(value)
+            }
+        }
+
+        saveRegisteredAlarms(remaining)
+    }
+
+    private fun cancelRequestCode(
         requestCode: Int
     ) {
         val intent =
@@ -594,105 +588,115 @@ class AppAlarmScheduler(
                         PendingIntent.FLAG_IMMUTABLE
             )
 
-        if (pendingIntent != null) {
-            alarmManager.cancel(
-                pendingIntent
-            )
-
-            pendingIntent.cancel()
+        pendingIntent?.let {
+            alarmManager.cancel(it)
+            it.cancel()
         }
     }
 
-    private fun hasExactAlarmPermission(): Boolean {
-        return if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.S
-        ) {
-            alarmManager.canScheduleExactAlarms()
-        } else {
-            true
+    private fun cancelSnoozeAlarm() {
+        val intent =
+            Intent(
+                context,
+                TestAlarmReceiver::class.java
+            )
+
+        val pendingIntent =
+            PendingIntent.getBroadcast(
+                context,
+                REQ_SNOOZE,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or
+                        PendingIntent.FLAG_IMMUTABLE
+            )
+
+        pendingIntent?.let {
+            alarmManager.cancel(it)
+            it.cancel()
         }
     }
 
-    private fun nextOccurrence(
-        dayIndex: Int,
-        minute: Int,
-        now: LocalDateTime
-    ): LocalDateTime {
-        val targetDay =
-            DayOfWeek.of(
-                dayIndex + 1
+    private fun getRegisteredAlarms(): Set<String> =
+        alarmPrefs
+            .getStringSet(
+                KEY_REGISTERED_ALARMS,
+                emptySet()
             )
+            ?.toSet()
+            ?: emptySet()
 
-        var date =
-            now.toLocalDate()
-
-        while (
-            date.dayOfWeek != targetDay
-        ) {
-            date = date.plusDays(1)
-        }
-
-        var result =
-            LocalDateTime.of(
-                date,
-                LocalTime.of(
-                    minute / 60,
-                    minute % 60
-                )
+    private fun saveRegisteredAlarms(
+        alarms: Set<String>
+    ) {
+        alarmPrefs
+            .edit()
+            .putStringSet(
+                KEY_REGISTERED_ALARMS,
+                alarms
             )
-
-        if (!result.isAfter(now)) {
-            result = result.plusWeeks(1)
-        }
-
-        return result
+            .apply()
     }
 
-    private fun getSubjectName(
-        entry: ScheduleEntry
-    ): String? {
-        val scheduleName =
-            storage.getKing()
+    private fun encodeAlarm(
+        type: Int,
+        requestCode: Int
+    ): String =
+        "$type:$requestCode"
+
+    private fun decodeAlarm(
+        value: String
+    ): RegisteredAlarm? {
+
+        val parts =
+            value.split(
+                ":",
+                limit = 2
+            )
+
+        if (parts.size != 2) return null
+
+        val type =
+            parts[0].toIntOrNull()
                 ?: return null
 
-        val schedule =
-            storage.getSchedule(scheduleName)
+        val requestCode =
+            parts[1].toIntOrNull()
                 ?: return null
 
-        val subjectId =
-            entry.subjectId
-                ?: return null
-
-        return schedule
-            .findSubject(subjectId)
-            ?.name
-    }
-
-    private fun formatTime(
-        minute: Int
-    ): String {
-        return LocalTime.of(
-            minute / 60,
-            minute % 60
-        ).format(
-            DateTimeFormatter.ofPattern(
-                "hh:mm a"
-            )
+        return RegisteredAlarm(
+            type = type,
+            requestCode = requestCode
         )
     }
 
     private fun requestCode(
         type: Int,
         id: Long
-    ): Int {
-        return (
-                type * 1_000_000L +
-                        (id and 0x7FFFFF)
-                ).toInt()
-    }
+    ): Int =
+        type *
+                REQUEST_CODE_MULTIPLIER +
+                (id and 0x7FFFFF).toInt()
+
+    private data class RegisteredAlarm(
+        val type: Int,
+        val requestCode: Int
+    )
 
     companion object {
+        private const val ALARM_PREFS = "horiz_alarm_registry"
+        private const val KEY_REGISTERED_ALARMS =
+            "registered_alarm_request_codes"
+
+        private const val REQUEST_CODE_MULTIPLIER = 1_000_000
+
+        private const val TYPE_CLASS = 1
+        private const val TYPE_TASK = 2
+        private const val TYPE_WAKEUP = 3
+
         private const val REQ_SNOOZE = 9001
+
+        private const val CLASS_REMINDER_MINUTES = 10L
+        private const val SNOOZE_DELAY_MILLIS =
+            5 * 60 * 1000L
     }
 }

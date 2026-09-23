@@ -26,6 +26,16 @@ enum class BaseColor {
     PINK
 }
 
+val BaseColor.primary: Color
+    get() = when (this) {
+        BaseColor.PURPLE -> PurplePrimary
+        BaseColor.BLUE -> BluePrimary
+        BaseColor.GREEN -> GreenPrimary
+        BaseColor.ORANGE -> OrangePrimary
+        BaseColor.RED -> RedPrimary
+        BaseColor.PINK -> PinkPrimary
+    }
+
 private fun lightColorSchemeFor(
     baseColor: BaseColor
 ): ColorScheme {

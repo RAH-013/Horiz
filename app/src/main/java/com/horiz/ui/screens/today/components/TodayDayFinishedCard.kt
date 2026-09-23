@@ -1,14 +1,13 @@
 package com.horiz.ui.screens.today.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -68,18 +67,6 @@ fun TodayDayFinishedCard() {
                 text = "Terminaste por hoy",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold
-            )
-
-            Spacer(
-                modifier = Modifier.height(4.dp)
-            )
-
-            Text(
-                text = "No tienes más actividades programadas.",
-                color =
-                    MaterialTheme.colorScheme
-                        .onSurfaceVariant,
-                fontSize = 14.sp
             )
         }
     }

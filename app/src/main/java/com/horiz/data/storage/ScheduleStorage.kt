@@ -1,15 +1,26 @@
 package com.horiz.storage
 
 import android.content.Context
+import android.content.Intent
 import android.util.Base64
+import androidx.glance.appwidget.updateAll
 import com.horiz.data.model.Schedule
 import com.horiz.data.model.TaskNode
+import com.horiz.data.model.TaskPriority
+import com.horiz.widget.TodayScheduleWidget
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDateTime
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
-class ScheduleStorage(context: Context) {
+class ScheduleStorage(
+    context: Context
+) {
+
+    private val context = context.applicationContext
 
     private val dir = File(
         context.filesDir,
@@ -23,11 +34,10 @@ class ScheduleStorage(context: Context) {
         "AES"
     )
 
-    private val prefs =
-        context.getSharedPreferences(
-            "hzsch_prefs",
-            Context.MODE_PRIVATE
-        )
+    private val prefs = context.getSharedPreferences(
+        "hzsch_prefs",
+        Context.MODE_PRIVATE
+    )
 
     init {
         ensureKingExists()
@@ -36,11 +46,8 @@ class ScheduleStorage(context: Context) {
     private fun encrypt(text: String): String {
         val cipher = Cipher.getInstance("AES")
         cipher.init(Cipher.ENCRYPT_MODE, key)
-
         return Base64.encodeToString(
-            cipher.doFinal(
-                text.toByteArray(Charsets.UTF_8)
-            ),
+            cipher.doFinal(text.toByteArray(Charsets.UTF_8)),
             Base64.NO_WRAP
         )
     }
@@ -48,14 +55,8 @@ class ScheduleStorage(context: Context) {
     private fun decrypt(text: String): String {
         val cipher = Cipher.getInstance("AES")
         cipher.init(Cipher.DECRYPT_MODE, key)
-
         return String(
-            cipher.doFinal(
-                Base64.decode(
-                    text,
-                    Base64.NO_WRAP
-                )
-            ),
+            cipher.doFinal(Base64.decode(text, Base64.NO_WRAP)),
             Charsets.UTF_8
         )
     }
@@ -69,28 +70,29 @@ class ScheduleStorage(context: Context) {
 
     private fun decode(value: String): String {
         return String(
-            Base64.decode(
-                value,
-                Base64.NO_WRAP or Base64.URL_SAFE
-            ),
+            Base64.decode(value, Base64.NO_WRAP or Base64.URL_SAFE),
             Charsets.UTF_8
         )
     }
 
     private fun notifyScheduleChanged() {
         prefs.edit()
-            .putLong(
-                "schedule_version",
-                System.currentTimeMillis()
-            )
+            .putLong("schedule_version", System.currentTimeMillis())
             .apply()
+
+        context.sendBroadcast(
+            Intent(ACTION_SCHEDULE_CHANGED).setPackage(context.packageName)
+        )
+
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                TodayScheduleWidget().updateAll(context)
+            }
+        }
     }
 
     fun createSchedule(schedule: Schedule) {
-        val file = File(
-            dir,
-            "${schedule.name}.hzsch"
-        )
+        val file = File(dir, "${schedule.name}.hzsch")
 
         file.writeText(
             encrypt(schedule.serialize()),
@@ -107,63 +109,36 @@ class ScheduleStorage(context: Context) {
     }
 
     fun getSchedule(name: String): Schedule? {
-        val file = File(
-            dir,
-            "$name.hzsch"
-        )
+        val file = File(dir, "$name.hzsch")
 
         if (!file.exists()) {
             return null
         }
 
         return runCatching {
-            val schedule =
-                Schedule.parse(
-                    decrypt(
-                        file.readText(
-                            Charsets.UTF_8
-                        )
-                    )
-                )
-
-            loadTasks(
-                schedule = schedule,
-                name = name
+            val schedule = Schedule.parse(
+                decrypt(file.readText(Charsets.UTF_8))
             )
 
+            loadTasks(schedule = schedule, name = name)
             schedule
         }.getOrNull()
     }
 
     fun getSchedules(): List<String> {
-        return dir
-            .listFiles()
-            ?.filter {
-                it.isFile &&
-                        it.extension == "hzsch"
-            }
-            ?.map {
-                it.nameWithoutExtension
-            }
+        return dir.listFiles()
+            ?.filter { it.isFile && it.extension == "hzsch" }
+            ?.map { it.nameWithoutExtension }
             ?.sorted()
             ?: emptyList()
     }
 
     fun deleteSchedule(name: String) {
-        File(
-            dir,
-            "$name.hzsch"
-        ).delete()
-
-        File(
-            dir,
-            "$name.hztasks"
-        ).delete()
+        File(dir, "$name.hzsch").delete()
+        File(dir, "$name.hztasks").delete()
 
         if (getKing() == name) {
-            prefs.edit()
-                .remove("king_schedule")
-                .apply()
+            prefs.edit().remove("king_schedule").apply()
         }
 
         ensureKingExists()
@@ -176,199 +151,168 @@ class ScheduleStorage(context: Context) {
         }
 
         prefs.edit()
-            .putString(
-                "king_schedule",
-                name
-            )
+            .putString("king_schedule", name)
             .apply()
 
         notifyScheduleChanged()
     }
 
     fun getKing(): String? {
-        return prefs.getString(
-            "king_schedule",
-            null
-        )
+        return prefs.getString("king_schedule", null)
     }
 
     fun getScheduleVersion(): Long {
-        return prefs.getLong(
-            "schedule_version",
-            0L
-        )
+        return prefs.getLong("schedule_version", 0L)
     }
 
-    private fun saveTasks(schedule: Schedule) {
-        val file = File(
-            dir,
-            "${schedule.name}.hztasks"
-        )
+    fun getPendingTasksCountBySubject(scheduleName: String? = getKing()): Map<String, Int> {
+        if (scheduleName == null) return emptyMap()
+        val schedule = getSchedule(scheduleName) ?: return emptyMap()
+
+        val counts = mutableMapOf<String, Int>()
+        val pendingTasks = schedule.tasks.filter { !it.completed }
+
+        for (task in pendingTasks) {
+            val idKey = task.subjectId.toString()
+            counts[idKey] = (counts[idKey] ?: 0) + 1
+
+            val subject = schedule.findSubject(task.subjectId)
+            if (subject != null) {
+                val nameKey = subject.name.lowercase().trim()
+                counts[nameKey] = (counts[nameKey] ?: 0) + 1
+            }
+        }
+
+        return counts
+    }
+
+    fun saveTasks(schedule: Schedule) {
+        val file = File(dir, "${schedule.name}.hztasks")
 
         if (schedule.tasks.isEmpty()) {
             file.delete()
+            notifyScheduleChanged()
             return
         }
 
-        val content =
-            schedule.tasks.joinToString("\n") { task ->
-                buildString {
-                    append(task.id)
-                    append("|")
-                    append(task.subjectId)
-                    append("|")
-                    append(encode(task.title))
-                    append("|")
-                    append(encode(task.description))
-                    append("|")
-                    append(
-                        task.dueAt?.toString() ?: ""
-                    )
-                    append("|")
-                    append(
-                        if (task.completed) {
-                            "1"
-                        } else {
-                            "0"
-                        }
-                    )
-                    append("|")
-                    append(task.orderIndex)
-                }
+        val content = schedule.tasks.joinToString("\n") { task ->
+            val subjectName = schedule.findSubject(task.subjectId)?.name ?: ""
+
+            buildString {
+                append(task.id)
+                append("|")
+                append(encode(subjectName))
+                append("|")
+                append(encode(task.title))
+                append("|")
+                append(encode(task.description))
+                append("|")
+                append(task.dueAt?.toString() ?: "")
+                append("|")
+                append(if (task.completed) "1" else "0")
+                append("|")
+                append(task.orderIndex)
+                append("|")
+                append(task.priority.name)
             }
+        }
 
         file.writeText(
             encrypt(content),
             Charsets.UTF_8
         )
+
+        notifyScheduleChanged()
     }
 
-    private fun loadTasks(
-        schedule: Schedule,
-        name: String
-    ) {
-        val file = File(
-            dir,
-            "$name.hztasks"
-        )
+    private fun loadTasks(schedule: Schedule, name: String) {
+        val file = File(dir, "$name.hztasks")
 
         if (!file.exists()) {
             return
         }
 
         runCatching {
-            decrypt(
-                file.readText(
-                    Charsets.UTF_8
-                )
-            )
+            decrypt(file.readText(Charsets.UTF_8))
         }.getOrNull()
             ?.lines()
-            ?.filter {
-                it.isNotBlank()
-            }
+            ?.filter { it.isNotBlank() }
             ?.forEach { line ->
-                parseTask(
-                    line = line,
-                    schedule = schedule
-                )
+                parseTask(line = line, schedule = schedule)
             }
 
-        schedule.tasks.sortBy {
-            it.orderIndex
-        }
+        schedule.tasks.sortBy { it.orderIndex }
     }
 
-    private fun parseTask(
-        line: String,
-        schedule: Schedule
-    ) {
+    private fun parseTask(line: String, schedule: Schedule) {
         val fields = line.split("|")
 
         if (fields.size < 6) {
             return
         }
 
-        val id =
-            fields[0].toLongOrNull()
-                ?: return
+        val id = fields[0].toLongOrNull() ?: return
+        val refField = fields[1]
+        val directId = refField.toLongOrNull()
 
-        val storedReference =
-            fields[1].toLongOrNull()
-                ?: return
+        val subjectId = if (directId != null) {
+            resolveLegacySubjectId(schedule, directId) ?: directId
+        } else {
+            val decodedName = runCatching { decode(refField) }.getOrNull()
+            if (decodedName != null) {
+                schedule.subjects.firstOrNull {
+                    it.name.equals(decodedName, ignoreCase = true)
+                }?.id
+            } else null
+        }
 
-        val subjectId =
-            resolveSubjectId(
-                schedule = schedule,
-                storedReference = storedReference
-            ) ?: return
+        val finalSubjectId = subjectId ?: 0L
 
-        val title =
-            runCatching {
-                decode(fields[2])
-            }.getOrNull()
-                ?: return
+        val titleIndex = 2
+        val descriptionIndex = 3
+        val dueAtIndex = 4
+        val completedIndex = 5
 
-        val description =
-            runCatching {
-                decode(fields[3])
-            }.getOrNull()
-                ?: return
+        val orderIndexField = fields.getOrNull(6)?.toIntOrNull() ?: 0
 
-        val dueAt =
-            if (fields[4].isBlank()) {
-                null
-            } else {
-                runCatching {
-                    LocalDateTime.parse(
-                        fields[4]
-                    )
-                }.getOrNull()
-            }
+        val priority = fields.getOrNull(7)?.let {
+            runCatching { TaskPriority.valueOf(it) }.getOrNull()
+        } ?: TaskPriority.LOW
 
-        val completed =
-            fields[5] == "1"
+        val title = runCatching { decode(fields[titleIndex]) }.getOrNull() ?: return
+        val description = runCatching { decode(fields[descriptionIndex]) }.getOrNull() ?: return
 
-        val orderIndex =
-            fields
-                .getOrNull(6)
-                ?.toIntOrNull()
-                ?: 0
+        val dueAt = if (fields[dueAtIndex].isBlank()) {
+            null
+        } else {
+            runCatching { LocalDateTime.parse(fields[dueAtIndex]) }.getOrNull()
+        }
 
-        val task =
-            runCatching {
-                TaskNode(
-                    id = id,
-                    subjectId = subjectId,
-                    title = title,
-                    description = description,
-                    dueAt = dueAt,
-                    completed = completed,
-                    orderIndex = orderIndex
-                )
-            }.getOrNull()
-                ?: return
+        val completed = fields[completedIndex] == "1"
+
+        val task = TaskNode(
+            id = id,
+            subjectId = finalSubjectId,
+            title = title,
+            description = description,
+            dueAt = dueAt,
+            completed = completed,
+            orderIndex = orderIndexField,
+            priority = priority
+        )
 
         schedule.addTask(task)
     }
 
-    private fun resolveSubjectId(
+    private fun resolveLegacySubjectId(
         schedule: Schedule,
         storedReference: Long
     ): Long? {
-        if (
-            schedule.findSubject(
-                storedReference
-            ) != null
-        ) {
+        if (schedule.findSubject(storedReference) != null) {
             return storedReference
         }
 
-        val entry =
-            schedule.findEntry(
-                storedReference
-            )
-
+        val entry = schedule.findEntry(storedReference)
         return entry?.subjectId
     }
 
@@ -376,12 +320,10 @@ class ScheduleStorage(context: Context) {
         val schedules = getSchedules()
 
         if (schedules.isEmpty()) {
-            val defaultSchedule =
-                Schedule(
-                    name = "Horario",
-                    enabled = true
-                )
-
+            val defaultSchedule = Schedule(
+                name = "Horario",
+                enabled = true
+            )
             createSchedule(defaultSchedule)
             setKing(defaultSchedule.name)
             return
@@ -389,11 +331,12 @@ class ScheduleStorage(context: Context) {
 
         val king = getKing()
 
-        if (
-            king == null ||
-            king !in schedules
-        ) {
+        if (king == null || king !in schedules) {
             setKing(schedules.first())
         }
+    }
+
+    companion object {
+        private const val ACTION_SCHEDULE_CHANGED = "com.horiz.ACTION_SCHEDULE_CHANGED"
     }
 }

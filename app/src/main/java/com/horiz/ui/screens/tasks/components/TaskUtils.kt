@@ -2,37 +2,30 @@ package com.horiz.ui.screens.tasks.components
 
 import com.horiz.data.model.Schedule
 import com.horiz.data.model.SubjectType
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 object TaskUtils {
 
-    private val dateFormatter =
-        DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-    private val timeFormatter =
-        DateTimeFormatter.ofPattern("HH:mm")
-
-    fun generateTaskId(
-        schedule: Schedule
-    ): Long {
-        return (
-                schedule.tasks.maxOfOrNull { it.id } ?: 0L
-                ) + 1L
+    fun generateTaskId(schedule: Schedule): Long {
+        return (schedule.tasks.maxOfOrNull { it.id } ?: 0L) + 1L
     }
 
     fun getEntryTitle(
         schedule: Schedule,
         entryId: Long
     ): String {
-        val entry = schedule.findEntry(entryId)
-            ?: return "Tareas"
+        val entry = schedule.findEntry(entryId) ?: return "Tareas"
 
         if (entry.type == SubjectType.BREAK) {
-            return entry.name?.takeIf { it.isNotBlank() }
-                ?: "Hora libre"
+            return entry.name?.takeIf { it.isNotBlank() } ?: "Hora libre"
         }
 
         return entry.subjectId
@@ -41,21 +34,24 @@ object TaskUtils {
             ?: "Tareas"
     }
 
-    fun formatDate(
-        date: LocalDate
-    ): String {
+    fun formatDate(date: LocalDate): String {
         return date.format(dateFormatter)
     }
 
-    fun formatTime(
-        time: LocalTime
-    ): String {
+    fun formatTime(time: LocalTime): String {
         return time.format(timeFormatter)
     }
 
-    fun formatDueAt(
-        dueAt: LocalDateTime
-    ): String {
+    fun formatDueAt(dueAt: LocalDateTime?): String {
+        if (dueAt == null) return "Sin fecha"
         return "Entrega: ${formatDate(dueAt.toLocalDate())} · ${formatTime(dueAt.toLocalTime())}"
+    }
+}
+
+fun Long?.toLocalDateTime(): LocalDateTime? {
+    return this?.let { millis ->
+        Instant.ofEpochMilli(millis)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDateTime()
     }
 }

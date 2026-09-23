@@ -1,5 +1,12 @@
 package com.horiz.ui.screens.subjects.components
 
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import kotlin.random.Random
 
 fun formatWords(
@@ -63,4 +70,77 @@ fun formatMinute(minute: Int): String {
         minute / 60,
         minute % 60
     )
+}
+
+public class FoldedCornerShape(
+    private val cornerRadius: Dp,
+    private val foldSize: Dp
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val radius = with(density) {
+            cornerRadius.toPx()
+        }
+
+        val fold = with(density) {
+            foldSize.toPx()
+        }
+
+        val path = Path().apply {
+            moveTo(radius, 0f)
+
+            lineTo(
+                size.width - fold,
+                0f
+            )
+
+            lineTo(
+                size.width,
+                fold
+            )
+
+            lineTo(
+                size.width,
+                size.height - radius
+            )
+
+            quadraticBezierTo(
+                size.width,
+                size.height,
+                size.width - radius,
+                size.height
+            )
+
+            lineTo(
+                radius,
+                size.height
+            )
+
+            quadraticBezierTo(
+                0f,
+                size.height,
+                0f,
+                size.height - radius
+            )
+
+            lineTo(
+                0f,
+                radius
+            )
+
+            quadraticBezierTo(
+                0f,
+                0f,
+                radius,
+                0f
+            )
+
+            close()
+        }
+
+        return Outline.Generic(path)
+    }
 }

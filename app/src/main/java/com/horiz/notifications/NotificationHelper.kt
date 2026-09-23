@@ -14,11 +14,14 @@ import com.horiz.MainActivity
 import com.horiz.R
 
 class NotificationHelper(
-    private val context: Context
+    context: Context
 ) {
 
+    private val context =
+        context.applicationContext
+
     private val notificationManager =
-        context.getSystemService(
+        this.context.getSystemService(
             Context.NOTIFICATION_SERVICE
         ) as NotificationManager
 
@@ -27,55 +30,61 @@ class NotificationHelper(
     }
 
     private fun createChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            val reminderChannel =
-                NotificationChannel(
-                    CHANNEL_REMINDERS,
-                    "Recordatorios de HORIZ",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-
-            val alarmSound =
-                RingtoneManager.getDefaultUri(
-                    RingtoneManager.TYPE_ALARM
-                )
-
-            val audioAttributes =
-                AudioAttributes.Builder()
-                    .setContentType(
-                        AudioAttributes.CONTENT_TYPE_SONIFICATION
-                    )
-                    .setUsage(
-                        AudioAttributes.USAGE_ALARM
-                    )
-                    .build()
-
-            val alarmChannel =
-                NotificationChannel(
-                    CHANNEL_WAKEUP,
-                    "Despertador HORIZ",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    lockscreenVisibility =
-                        Notification.VISIBILITY_PUBLIC
-
-                    setSound(
-                        alarmSound,
-                        audioAttributes
-                    )
-
-                    enableVibration(true)
-                }
-
-            notificationManager.createNotificationChannel(
-                reminderChannel
-            )
-
-            notificationManager.createNotificationChannel(
-                alarmChannel
-            )
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
         }
+
+        val reminderChannel =
+            NotificationChannel(
+                CHANNEL_REMINDERS,
+                "Recordatorios de HORIZ",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                lockscreenVisibility =
+                    Notification.VISIBILITY_PUBLIC
+
+                enableVibration(true)
+            }
+
+        val alarmSound =
+            RingtoneManager.getDefaultUri(
+                RingtoneManager.TYPE_ALARM
+            )
+
+        val audioAttributes =
+            AudioAttributes.Builder()
+                .setContentType(
+                    AudioAttributes.CONTENT_TYPE_SONIFICATION
+                )
+                .setUsage(
+                    AudioAttributes.USAGE_ALARM
+                )
+                .build()
+
+        val alarmChannel =
+            NotificationChannel(
+                CHANNEL_WAKEUP,
+                "Despertador HORIZ",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                lockscreenVisibility =
+                    Notification.VISIBILITY_PUBLIC
+
+                setSound(
+                    alarmSound,
+                    audioAttributes
+                )
+
+                enableVibration(true)
+            }
+
+        notificationManager.createNotificationChannel(
+            reminderChannel
+        )
+
+        notificationManager.createNotificationChannel(
+            alarmChannel
+        )
     }
 
     fun showClassReminder(
@@ -87,7 +96,9 @@ class NotificationHelper(
                 context,
                 CHANNEL_REMINDERS
             )
-                .setSmallIcon(R.drawable.noti)
+                .setSmallIcon(
+                    R.drawable.icon_notification
+                )
                 .setContentTitle(
                     "Próxima clase"
                 )
@@ -96,6 +107,12 @@ class NotificationHelper(
                 )
                 .setPriority(
                     NotificationCompat.PRIORITY_HIGH
+                )
+                .setCategory(
+                    NotificationCompat.CATEGORY_REMINDER
+                )
+                .setVisibility(
+                    NotificationCompat.VISIBILITY_PUBLIC
                 )
                 .setAutoCancel(true)
                 .build()
@@ -114,7 +131,9 @@ class NotificationHelper(
                 context,
                 CHANNEL_REMINDERS
             )
-                .setSmallIcon(R.drawable.noti)
+                .setSmallIcon(
+                    R.drawable.icon_notification
+                )
                 .setContentTitle(
                     "Recordatorio de tarea"
                 )
@@ -123,6 +142,12 @@ class NotificationHelper(
                 )
                 .setPriority(
                     NotificationCompat.PRIORITY_HIGH
+                )
+                .setCategory(
+                    NotificationCompat.CATEGORY_REMINDER
+                )
+                .setVisibility(
+                    NotificationCompat.VISIBILITY_PUBLIC
                 )
                 .setAutoCancel(true)
                 .build()
@@ -144,7 +169,8 @@ class NotificationHelper(
             ).apply {
                 flags =
                     Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
 
                 putExtra(
                     MainActivity.EXTRA_NAVIGATE_TO,
@@ -222,7 +248,9 @@ class NotificationHelper(
                 context,
                 CHANNEL_WAKEUP
             )
-                .setSmallIcon(R.drawable.noti)
+                .setSmallIcon(
+                    R.drawable.icon_notification
+                )
                 .setContentTitle(
                     "¡Despertador HORIZ!"
                 )
@@ -235,21 +263,23 @@ class NotificationHelper(
                 .setCategory(
                     NotificationCompat.CATEGORY_ALARM
                 )
+                .setVisibility(
+                    NotificationCompat.VISIBILITY_PUBLIC
+                )
                 .setOngoing(true)
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(false)
                 .setFullScreenIntent(
                     fullScreenPendingIntent,
                     true
                 )
-                .setVisibility(
-                    NotificationCompat.VISIBILITY_PUBLIC
-                )
                 .addAction(
-                    R.drawable.clock,
+                    R.drawable.icon_snooze,
                     "Posponer 5 min",
                     snoozePendingIntent
                 )
                 .addAction(
-                    R.drawable.stop,
+                    R.drawable.icon_stop,
                     "Detener",
                     stopPendingIntent
                 )
@@ -274,6 +304,7 @@ class NotificationHelper(
     }
 
     companion object {
+
         const val CHANNEL_REMINDERS =
             "horiz_reminders"
 

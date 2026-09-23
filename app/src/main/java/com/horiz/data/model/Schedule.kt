@@ -16,24 +16,18 @@ data class Schedule(
 ) {
     companion object {
         private const val FORMAT_VERSION = "HZ3"
-        private const val LEGACY_FORMAT_VERSION = "HZ2"
-        private const val OLDEST_FORMAT_VERSION = "HZ1"
-
         private const val DAYS_PER_WEEK = 7
-
-        private const val LEGACY_SUBJECT_FIELDS = 6
-        private const val LEGACY_SUBJECT_FIELDS_V2 = 7
 
         private const val FIELD_SEPARATOR = "|"
         private const val ENTRY_SEPARATOR = ","
         private const val VALUE_SEPARATOR = ";"
 
-        private const val HZ3_ENTRY_FIELDS = 9
-        private const val HZ3_LEGACY_ENTRY_FIELDS = 8
+        private const val NULL_VALUE = "-"
+        private const val CLASS_CODE = "C"
+        private const val BREAK_CODE = "B"
 
-        private fun generateId(): Long {
-            return System.nanoTime()
-        }
+        private fun generateId(): Long =
+            System.nanoTime()
 
         private fun encode(value: String): String {
             return Base64.encodeToString(
@@ -52,33 +46,34 @@ data class Schedule(
             )
         }
 
-        fun parse(text: String): Schedule {
-            val parts = text.split(FIELD_SEPARATOR)
-
-            if (parts.isEmpty()) {
-                throw IllegalArgumentException(
-                    "Formato de schedule inválido"
-                )
-            }
-
-            return when (parts[0]) {
-                FORMAT_VERSION -> parseHz3(parts)
-
-                LEGACY_FORMAT_VERSION,
-                OLDEST_FORMAT_VERSION -> parseLegacy(parts)
-
-                else -> {
-                    throw IllegalArgumentException(
-                        "Versión de schedule no soportada: ${parts[0]}"
-                    )
-                }
+        private fun typeToCode(
+            type: SubjectType
+        ): String {
+            return when (type) {
+                SubjectType.CLASS -> CLASS_CODE
+                SubjectType.BREAK -> BREAK_CODE
             }
         }
 
-        private fun parseHz3(
-            parts: List<String>
-        ): Schedule {
-            if (parts.size < 6 + DAYS_PER_WEEK) {
+        private fun codeToType(
+            code: String
+        ): SubjectType {
+            return when (code) {
+                BREAK_CODE -> SubjectType.BREAK
+                else -> SubjectType.CLASS
+            }
+        }
+
+        fun parse(text: String): Schedule {
+            val parts = text.split(
+                FIELD_SEPARATOR,
+                limit = 13
+            )
+
+            if (
+                parts.size != 13 ||
+                parts[0] != FORMAT_VERSION
+            ) {
                 throw IllegalArgumentException(
                     "Formato HZ3 inválido"
                 )
@@ -89,19 +84,28 @@ data class Schedule(
                 enabled = parts[2] == "1"
             )
 
-            parseSubjects(parts[3], schedule)
-            parseTeachers(parts[4], schedule)
-            parseLocations(parts[5], schedule)
+            parseSubjects(
+                parts[3],
+                schedule
+            )
+
+            parseTeachers(
+                parts[4],
+                schedule
+            )
+
+            parseLocations(
+                parts[5],
+                schedule
+            )
 
             for (dayIndex in 0 until DAYS_PER_WEEK) {
                 parseDay(
-                    serialized = parts[6 + dayIndex],
-                    dayIndex = dayIndex,
-                    schedule = schedule
+                    parts[6 + dayIndex],
+                    dayIndex,
+                    schedule
                 )
             }
-
-            schedule.cleanupUnusedResources()
 
             return schedule
         }
@@ -115,29 +119,30 @@ data class Schedule(
             serialized
                 .split(VALUE_SEPARATOR)
                 .forEach { item ->
-                    val fields = item.split(ENTRY_SEPARATOR)
+                    val fields = item.split(
+                        ENTRY_SEPARATOR,
+                        limit = 2
+                    )
 
-                    if (fields.size != 3) {
-                        return@forEach
-                    }
+                    if (fields.size != 2) return@forEach
 
-                    val id =
-                        fields[0].toLongOrNull()
+                    val name =
+                        runCatching {
+                            decode(fields[0])
+                        }.getOrNull()
                             ?: return@forEach
 
                     val color =
-                        fields[2].toLongOrNull()
+                        fields[1].toLongOrNull()
                             ?: return@forEach
 
-                    runCatching {
-                        schedule.subjects.add(
-                            Subject(
-                                id = id,
-                                name = decode(fields[1]),
-                                color = color
-                            )
+                    schedule.subjects.add(
+                        Subject(
+                            id = generateId(),
+                            name = name,
+                            color = color
                         )
-                    }
+                    )
                 }
         }
 
@@ -149,25 +154,19 @@ data class Schedule(
 
             serialized
                 .split(VALUE_SEPARATOR)
-                .forEach { item ->
-                    val fields = item.split(ENTRY_SEPARATOR)
-
-                    if (fields.size != 2) {
-                        return@forEach
-                    }
-
-                    val id =
-                        fields[0].toLongOrNull()
+                .forEach { value ->
+                    val name =
+                        runCatching {
+                            decode(value)
+                        }.getOrNull()
                             ?: return@forEach
 
-                    runCatching {
-                        schedule.teachers.add(
-                            Teacher(
-                                id = id,
-                                name = decode(fields[1])
-                            )
+                    schedule.teachers.add(
+                        Teacher(
+                            id = generateId(),
+                            name = name
                         )
-                    }
+                    )
                 }
         }
 
@@ -179,25 +178,19 @@ data class Schedule(
 
             serialized
                 .split(VALUE_SEPARATOR)
-                .forEach { item ->
-                    val fields = item.split(ENTRY_SEPARATOR)
-
-                    if (fields.size != 2) {
-                        return@forEach
-                    }
-
-                    val id =
-                        fields[0].toLongOrNull()
+                .forEach { value ->
+                    val name =
+                        runCatching {
+                            decode(value)
+                        }.getOrNull()
                             ?: return@forEach
 
-                    runCatching {
-                        schedule.locations.add(
-                            Location(
-                                id = id,
-                                name = decode(fields[1])
-                            )
+                    schedule.locations.add(
+                        Location(
+                            id = generateId(),
+                            name = name
                         )
-                    }
+                    )
                 }
         }
 
@@ -206,352 +199,197 @@ data class Schedule(
             dayIndex: Int,
             schedule: Schedule
         ) {
-            val fields = serialized.split(ENTRY_SEPARATOR)
+            if (serialized.isEmpty()) return
+
+            val fields = serialized.split(
+                ENTRY_SEPARATOR
+            )
 
             if (fields.isEmpty()) return
 
             val day = schedule.days[dayIndex]
 
-            day.setEnabled(fields[0] == "1")
-
-            if (fields.size == 1) return
-
-            val dataFields = fields.size - 1
-
-            val fieldsPerEntry =
-                when {
-                    dataFields % HZ3_ENTRY_FIELDS == 0 ->
-                        HZ3_ENTRY_FIELDS
-
-                    dataFields % HZ3_LEGACY_ENTRY_FIELDS == 0 ->
-                        HZ3_LEGACY_ENTRY_FIELDS
-
-                    else ->
-                        return
-                }
+            day.setEnabled(
+                fields[0] == "1"
+            )
 
             var position = 1
 
-            while (
-                position + fieldsPerEntry <= fields.size
-            ) {
-                val id =
+            while (position + 8 < fields.size) {
+                val subjectName =
                     fields[position]
-                        .toLongOrNull()
-                        ?: break
+                        .takeUnless {
+                            it == NULL_VALUE
+                        }
+                        ?.let {
+                            runCatching {
+                                decode(it)
+                            }.getOrNull()
+                        }
 
-                val subjectId =
+                val teacherName =
                     fields[position + 1]
-                        .toLongOrNull()
+                        .takeUnless {
+                            it == NULL_VALUE
+                        }
+                        ?.let {
+                            runCatching {
+                                decode(it)
+                            }.getOrNull()
+                        }
 
-                val teacherId =
+                val locationName =
                     fields[position + 2]
-                        .toLongOrNull()
-
-                val locationId =
-                    fields[position + 3]
-                        .toLongOrNull()
+                        .takeUnless {
+                            it == NULL_VALUE
+                        }
+                        ?.let {
+                            runCatching {
+                                decode(it)
+                            }.getOrNull()
+                        }
 
                 val startMinute =
-                    fields[position + 4]
+                    fields[position + 3]
                         .toIntOrNull()
 
                 val endMinute =
-                    fields[position + 5]
+                    fields[position + 4]
                         .toIntOrNull()
 
                 val color =
-                    fields[position + 6]
+                    fields[position + 5]
                         .toLongOrNull()
 
                 val type =
-                    runCatching {
-                        SubjectType.valueOf(
-                            fields[position + 7]
-                        )
-                    }.getOrDefault(
-                        SubjectType.CLASS
+                    codeToType(
+                        fields[position + 6]
                     )
 
-                val name =
+                val entryName =
+                    fields[position + 7]
+                        .takeUnless {
+                            it == NULL_VALUE
+                        }
+                        ?.let {
+                            runCatching {
+                                decode(it)
+                            }.getOrNull()
+                        }
+
+                val subjectColor =
+                    fields[position + 8]
+                        .toLongOrNull()
+
+                if (
+                    startMinute == null ||
+                    endMinute == null ||
+                    color == null
+                ) {
+                    position += 9
+                    continue
+                }
+
+                val subjectId =
                     if (
-                        fieldsPerEntry ==
-                        HZ3_ENTRY_FIELDS
+                        type == SubjectType.CLASS &&
+                        !subjectName.isNullOrBlank()
                     ) {
-                        fields[position + 8]
-                            .takeIf { it.isNotEmpty() }
-                            ?.let { encoded ->
-                                runCatching {
-                                    decode(encoded)
-                                }.getOrNull()
+                        val subject =
+                            schedule.subjects.firstOrNull {
+                                it.name.equals(
+                                    subjectName,
+                                    ignoreCase = true
+                                )
                             }
+                                ?: Subject(
+                                    id = generateId(),
+                                    name = subjectName,
+                                    color =
+                                        subjectColor
+                                            ?: color
+                                ).also {
+                                    schedule.subjects.add(it)
+                                }
+
+                        subject.id
                     } else {
                         null
                     }
 
-                if (
-                    startMinute != null &&
-                    endMinute != null &&
-                    color != null
-                ) {
-                    runCatching {
-                        day.entries.add(
-                            ScheduleEntry(
-                                id = id,
-                                subjectId = subjectId,
-                                teacherId = teacherId,
-                                locationId = locationId,
-                                startMinute = startMinute,
-                                endMinute = endMinute,
-                                dayIndex = dayIndex,
-                                color = color,
-                                type = type,
-                                name =
-                                    if (
-                                        type ==
-                                        SubjectType.BREAK
-                                    ) {
-                                        name ?: "Recreo"
-                                    } else {
-                                        null
-                                    }
-                            )
-                        )
+                val teacherId =
+                    if (
+                        type == SubjectType.CLASS &&
+                        !teacherName.isNullOrBlank()
+                    ) {
+                        schedule.teachers
+                            .firstOrNull {
+                                it.name.equals(
+                                    teacherName,
+                                    ignoreCase = true
+                                )
+                            }
+                            ?.id
+                            ?: Teacher(
+                                id = generateId(),
+                                name = teacherName
+                            ).also {
+                                schedule.teachers.add(it)
+                            }.id
+                    } else {
+                        null
                     }
-                }
 
-                position += fieldsPerEntry
+                val locationId =
+                    if (
+                        type == SubjectType.CLASS &&
+                        !locationName.isNullOrBlank()
+                    ) {
+                        schedule.locations
+                            .firstOrNull {
+                                it.name.equals(
+                                    locationName,
+                                    ignoreCase = true
+                                )
+                            }
+                            ?.id
+                            ?: Location(
+                                id = generateId(),
+                                name = locationName
+                            ).also {
+                                schedule.locations.add(it)
+                            }.id
+                    } else {
+                        null
+                    }
+
+                day.entries.add(
+                    ScheduleEntry(
+                        id = generateId(),
+                        subjectId = subjectId,
+                        teacherId = teacherId,
+                        locationId = locationId,
+                        startMinute = startMinute,
+                        endMinute = endMinute,
+                        dayIndex = dayIndex,
+                        color = color,
+                        type = type,
+                        name =
+                            if (
+                                type == SubjectType.BREAK
+                            ) {
+                                entryName ?: "Recreo"
+                            } else {
+                                null
+                            }
+                    )
+                )
+
+                position += 9
             }
 
             day.entries.sortBy {
                 it.startMinute
-            }
-        }
-
-        private fun parseLegacy(
-            parts: List<String>
-        ): Schedule {
-            if (parts.size < 3) {
-                throw IllegalArgumentException(
-                    "Formato legacy inválido"
-                )
-            }
-
-            val schedule = Schedule(
-                name = parts[1],
-                enabled = parts[2] == "1"
-            )
-
-            val isHz2 =
-                parts[0] == LEGACY_FORMAT_VERSION
-
-            val fieldsPerSubject =
-                if (isHz2) {
-                    LEGACY_SUBJECT_FIELDS_V2
-                } else {
-                    LEGACY_SUBJECT_FIELDS
-                }
-
-            for (dayIndex in 0 until DAYS_PER_WEEK) {
-                val position = 3 + dayIndex
-
-                if (position >= parts.size) break
-
-                val serializedDay = parts[position]
-
-                if (serializedDay.isEmpty()) continue
-
-                val fields =
-                    serializedDay.split(ENTRY_SEPARATOR)
-
-                if (fields.isEmpty()) continue
-
-                val day = schedule.days[dayIndex]
-
-                day.setEnabled(fields[0] == "1")
-
-                var fieldPosition = 1
-
-                while (
-                    fieldPosition + fieldsPerSubject <=
-                    fields.size
-                ) {
-                    val startMinute =
-                        fields[fieldPosition]
-                            .toIntOrNull()
-
-                    val endMinute =
-                        fields[fieldPosition + 1]
-                            .toIntOrNull()
-
-                    val subjectName =
-                        fields[fieldPosition + 2]
-
-                    val teacherName =
-                        fields[fieldPosition + 3]
-
-                    val locationName =
-                        fields[fieldPosition + 4]
-
-                    val color =
-                        fields[fieldPosition + 5]
-                            .toLongOrNull()
-
-                    val type =
-                        if (isHz2) {
-                            runCatching {
-                                SubjectType.valueOf(
-                                    fields[fieldPosition + 6]
-                                )
-                            }.getOrDefault(
-                                SubjectType.CLASS
-                            )
-                        } else {
-                            SubjectType.CLASS
-                        }
-
-                    if (
-                        startMinute != null &&
-                        endMinute != null &&
-                        color != null
-                    ) {
-                        val subject =
-                            if (
-                                type == SubjectType.CLASS &&
-                                subjectName.isNotBlank()
-                            ) {
-                                findOrCreateSubject(
-                                    schedule,
-                                    subjectName,
-                                    color
-                                )
-                            } else {
-                                null
-                            }
-
-                        val teacher =
-                            if (
-                                type == SubjectType.CLASS &&
-                                teacherName.isNotBlank()
-                            ) {
-                                findOrCreateTeacher(
-                                    schedule,
-                                    teacherName
-                                )
-                            } else {
-                                null
-                            }
-
-                        val location =
-                            if (
-                                type == SubjectType.CLASS &&
-                                locationName.isNotBlank()
-                            ) {
-                                findOrCreateLocation(
-                                    schedule,
-                                    locationName
-                                )
-                            } else {
-                                null
-                            }
-
-                        if (
-                            type == SubjectType.CLASS &&
-                            subject == null
-                        ) {
-                            fieldPosition += fieldsPerSubject
-                            continue
-                        }
-
-                        runCatching {
-                            day.entries.add(
-                                ScheduleEntry(
-                                    id = generateId(),
-                                    subjectId = subject?.id,
-                                    teacherId = teacher?.id,
-                                    locationId = location?.id,
-                                    startMinute = startMinute,
-                                    endMinute = endMinute,
-                                    dayIndex = dayIndex,
-                                    color = color,
-                                    type = type,
-                                    name =
-                                        if (
-                                            type ==
-                                            SubjectType.BREAK
-                                        ) {
-                                            "Recreo"
-                                        } else {
-                                            null
-                                        }
-                                )
-                            )
-                        }
-                    }
-
-                    fieldPosition += fieldsPerSubject
-                }
-
-                day.entries.sortBy {
-                    it.startMinute
-                }
-            }
-
-            schedule.cleanupUnusedResources()
-
-            return schedule
-        }
-
-        private fun findOrCreateSubject(
-            schedule: Schedule,
-            name: String,
-            color: Long
-        ): Subject {
-            return schedule.subjects.firstOrNull {
-                it.name.equals(
-                    name,
-                    ignoreCase = true
-                )
-            } ?: Subject(
-                id = generateId(),
-                name = name,
-                color = color
-            ).also {
-                schedule.subjects.add(it)
-            }
-        }
-
-        private fun findOrCreateTeacher(
-            schedule: Schedule,
-            name: String
-        ): Teacher {
-            return schedule.teachers.firstOrNull {
-                it.name.equals(
-                    name,
-                    ignoreCase = true
-                )
-            } ?: Teacher(
-                id = generateId(),
-                name = name
-            ).also {
-                schedule.teachers.add(it)
-            }
-        }
-
-        private fun findOrCreateLocation(
-            schedule: Schedule,
-            name: String
-        ): Location {
-            return schedule.locations.firstOrNull {
-                it.name.equals(
-                    name,
-                    ignoreCase = true
-                )
-            } ?: Location(
-                id = generateId(),
-                name = name
-            ).also {
-                schedule.locations.add(it)
             }
         }
     }
@@ -560,74 +398,142 @@ data class Schedule(
         return buildString {
             append(FORMAT_VERSION)
             append(FIELD_SEPARATOR)
+
             append(encode(name))
             append(FIELD_SEPARATOR)
-            append(if (enabled) "1" else "0")
+
+            append(
+                if (enabled) "1" else "0"
+            )
             append(FIELD_SEPARATOR)
 
             append(
-                subjects.joinToString(VALUE_SEPARATOR) {
-                    "${it.id}$ENTRY_SEPARATOR" +
-                            "${encode(it.name)}$ENTRY_SEPARATOR" +
-                            it.color
+                subjects.joinToString(
+                    VALUE_SEPARATOR
+                ) {
+                    buildString {
+                        append(encode(it.name))
+                        append(ENTRY_SEPARATOR)
+                        append(it.color)
+                    }
                 }
             )
 
             append(FIELD_SEPARATOR)
 
             append(
-                teachers.joinToString(VALUE_SEPARATOR) {
-                    "${it.id}$ENTRY_SEPARATOR" +
-                            encode(it.name)
+                teachers.joinToString(
+                    VALUE_SEPARATOR
+                ) {
+                    encode(it.name)
                 }
             )
 
             append(FIELD_SEPARATOR)
 
             append(
-                locations.joinToString(VALUE_SEPARATOR) {
-                    "${it.id}$ENTRY_SEPARATOR" +
-                            encode(it.name)
+                locations.joinToString(
+                    VALUE_SEPARATOR
+                ) {
+                    encode(it.name)
                 }
             )
 
             days.forEach { day ->
                 append(FIELD_SEPARATOR)
 
-                append(if (day.enabled) "1" else "0")
+                append(
+                    if (day.enabled) "1" else "0"
+                )
 
                 day.entries
-                    .sortedBy { it.startMinute }
+                    .sortedBy {
+                        it.startMinute
+                    }
                     .forEach { entry ->
-                        append(ENTRY_SEPARATOR)
-                        append(entry.id)
-                        append(ENTRY_SEPARATOR)
-                        append(entry.subjectId ?: "")
-                        append(ENTRY_SEPARATOR)
-                        append(entry.teacherId ?: "")
-                        append(ENTRY_SEPARATOR)
-                        append(entry.locationId ?: "")
-                        append(ENTRY_SEPARATOR)
-                        append(entry.startMinute)
-                        append(ENTRY_SEPARATOR)
-                        append(entry.endMinute)
-                        append(ENTRY_SEPARATOR)
-                        append(entry.color)
-                        append(ENTRY_SEPARATOR)
-                        append(entry.type.name)
+                        val subject =
+                            entry.subjectId?.let {
+                                findSubject(it)
+                            }
+
+                        val teacher =
+                            entry.teacherId?.let {
+                                findTeacher(it)
+                            }
+
+                        val location =
+                            entry.locationId?.let {
+                                findLocation(it)
+                            }
+
                         append(ENTRY_SEPARATOR)
 
                         append(
                             if (
-                                entry.type ==
-                                SubjectType.BREAK
+                                subject != null
                             ) {
-                                encode(
-                                    entry.name ?: "Recreo"
-                                )
+                                encode(subject.name)
                             } else {
-                                ""
+                                NULL_VALUE
                             }
+                        )
+
+                        append(ENTRY_SEPARATOR)
+
+                        append(
+                            if (
+                                teacher != null
+                            ) {
+                                encode(teacher.name)
+                            } else {
+                                NULL_VALUE
+                            }
+                        )
+
+                        append(ENTRY_SEPARATOR)
+
+                        append(
+                            if (
+                                location != null
+                            ) {
+                                encode(location.name)
+                            } else {
+                                NULL_VALUE
+                            }
+                        )
+
+                        append(ENTRY_SEPARATOR)
+                        append(entry.startMinute)
+
+                        append(ENTRY_SEPARATOR)
+                        append(entry.endMinute)
+
+                        append(ENTRY_SEPARATOR)
+                        append(entry.color)
+
+                        append(ENTRY_SEPARATOR)
+                        append(typeToCode(entry.type))
+
+                        append(ENTRY_SEPARATOR)
+
+                        if (
+                            entry.type == SubjectType.BREAK
+                        ) {
+                            append(
+                                encode(
+                                    entry.name
+                                        ?: "Recreo"
+                                )
+                            )
+                        } else {
+                            append(NULL_VALUE)
+                        }
+
+                        append(ENTRY_SEPARATOR)
+
+                        append(
+                            subject?.color
+                                ?: entry.color
                         )
                     }
             }
@@ -671,14 +577,6 @@ data class Schedule(
             }
     }
 
-    fun findTask(
-        taskId: Long
-    ): TaskNode? {
-        return tasks.firstOrNull {
-            it.id == taskId
-        }
-    }
-
     fun findTasksForSubject(
         subjectId: Long
     ): List<TaskNode> {
@@ -694,75 +592,38 @@ data class Schedule(
     fun findTasksForEntry(
         scheduleEntryId: Long
     ): List<TaskNode> {
-        val entry = findEntry(scheduleEntryId)
-            ?: return emptyList()
+        val entry =
+            findEntry(scheduleEntryId)
+                ?: return emptyList()
 
-        val subjectId = entry.subjectId
-            ?: return emptyList()
+        val subjectId =
+            entry.subjectId
+                ?: return emptyList()
 
-        return findTasksForSubject(subjectId)
+        return findTasksForSubject(
+            subjectId
+        )
     }
 
     fun addTask(
         task: TaskNode
     ): Boolean {
-        if (findSubject(task.subjectId) == null) {
+        if (
+            findSubject(task.subjectId) == null
+        ) {
             return false
         }
 
-        if (tasks.any { it.id == task.id }) {
+        if (
+            tasks.any {
+                it.id == task.id
+            }
+        ) {
             return false
         }
 
         tasks.add(task)
         return true
-    }
-
-    fun updateTask(
-        task: TaskNode
-    ): Boolean {
-        val position = tasks.indexOfFirst {
-            it.id == task.id
-        }
-
-        if (position == -1) {
-            return false
-        }
-
-        if (findSubject(task.subjectId) == null) {
-            return false
-        }
-
-        tasks[position] = task
-        return true
-    }
-
-    fun removeTask(
-        taskId: Long
-    ): Boolean {
-        return tasks.removeIf {
-            it.id == taskId
-        }
-    }
-
-    fun addEntry(
-        entry: ScheduleEntry
-    ): Boolean {
-        val day =
-            days.getOrNull(entry.dayIndex)
-                ?: return false
-
-        return day.addEntry(entry)
-    }
-
-    fun replaceEntry(
-        entry: ScheduleEntry
-    ): Boolean {
-        val day =
-            days.getOrNull(entry.dayIndex)
-                ?: return false
-
-        return day.replaceEntry(entry)
     }
 
     fun removeEntry(
@@ -771,9 +632,10 @@ data class Schedule(
         findEntry(entryId)
             ?: return false
 
-        val removed = days.any {
-            it.removeEntry(entryId)
-        }
+        val removed =
+            days.any {
+                it.removeEntry(entryId)
+            }
 
         if (!removed) {
             return false
@@ -787,24 +649,32 @@ data class Schedule(
     private fun cleanupUnusedResources() {
         val activeEntries =
             days
-                .flatMap { it.entries }
+                .flatMap {
+                    it.entries
+                }
                 .filter {
                     it.type == SubjectType.CLASS
                 }
 
         val usedSubjectIds =
             activeEntries
-                .mapNotNull { it.subjectId }
+                .mapNotNull {
+                    it.subjectId
+                }
                 .toSet()
 
         val usedTeacherIds =
             activeEntries
-                .mapNotNull { it.teacherId }
+                .mapNotNull {
+                    it.teacherId
+                }
                 .toSet()
 
         val usedLocationIds =
             activeEntries
-                .mapNotNull { it.locationId }
+                .mapNotNull {
+                    it.locationId
+                }
                 .toSet()
 
         subjects.removeAll {
@@ -824,34 +694,25 @@ data class Schedule(
         }
     }
 
-    fun clear() {
-        days.forEach {
-            it.clearEntries()
-        }
-
-        tasks.clear()
-        subjects.clear()
-        teachers.clear()
-        locations.clear()
-    }
-
     fun findOrCreateSubject(
         name: String,
         color: Long
     ): Subject {
-        val existing = subjects.firstOrNull {
-            it.name.equals(
-                name,
-                ignoreCase = true
-            )
-        }
+        val existing =
+            subjects.firstOrNull {
+                it.name.equals(
+                    name,
+                    ignoreCase = true
+                )
+            }
 
         if (existing != null) {
+            existing.color = color
             return existing
         }
 
         return Subject(
-            id = System.nanoTime(),
+            id = generateId(),
             name = name,
             color = color
         ).also {
@@ -862,19 +723,20 @@ data class Schedule(
     fun findOrCreateTeacher(
         name: String
     ): Teacher {
-        val existing = teachers.firstOrNull {
-            it.name.equals(
-                name,
-                ignoreCase = true
-            )
-        }
+        val existing =
+            teachers.firstOrNull {
+                it.name.equals(
+                    name,
+                    ignoreCase = true
+                )
+            }
 
         if (existing != null) {
             return existing
         }
 
         return Teacher(
-            id = System.nanoTime(),
+            id = generateId(),
             name = name
         ).also {
             teachers.add(it)
@@ -884,35 +746,23 @@ data class Schedule(
     fun findOrCreateLocation(
         name: String
     ): Location {
-        val existing = locations.firstOrNull {
-            it.name.equals(
-                name,
-                ignoreCase = true
-            )
-        }
+        val existing =
+            locations.firstOrNull {
+                it.name.equals(
+                    name,
+                    ignoreCase = true
+                )
+            }
 
         if (existing != null) {
             return existing
         }
 
         return Location(
-            id = System.nanoTime(),
+            id = generateId(),
             name = name
         ).also {
             locations.add(it)
         }
-    }
-
-    fun duplicateEntryToDay(entry: ScheduleEntry, targetDayIndex: Int) {
-        val targetDay = days.getOrNull(targetDayIndex) ?: return
-
-        if (targetDay.entries.size >= 10) return
-
-        val newEntry = entry.copy(
-            id = generateId(),
-            dayIndex = targetDayIndex
-        )
-
-        targetDay.entries.add(newEntry)
     }
 }
